@@ -1,0 +1,237 @@
+---
+title: "Data exploration"
+author: "Farhan Reynaldo"
+date: "2024-09-26"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+here::i_am("scripts/data-exploration.Rmd")
+```
+
+```{r}
+library(tidyverse)
+library(haven)
+library(janitor)
+library(here)
+library(rstanarm)
+library(lme4)
+library(ipumsr)
+library(ggtext)
+library(table1)
+
+theme_benedict <- function(base_size = 12,
+                           dark_text = "#1A242F") {
+  mid_text <- monochromeR::generate_palette(dark_text, "go_lighter", n_colours = 5)[2]
+  light_text <- monochromeR::generate_palette(dark_text, "go_lighter", n_colours = 5)[3]
+
+  theme_minimal(base_size = base_size) +
+    theme(
+      text = element_text(colour = mid_text, family = "IBM Plex Sans", lineheight = 1.1),
+      plot.title = element_text(colour = dark_text, family = "IBM Plex Sans", face = "bold", size = rel(1.6), margin = margin(12, 0, 8, 0)),
+      plot.subtitle = element_textbox_simple(size = rel(1), face = "italic", padding = margin(0, 0, 30, 0)),
+      axis.text.y = element_text(colour = light_text, size = rel(0.8)),
+      axis.title.y = element_text(size = 12, margin = margin(0, 4, 0, 0)),
+      axis.text.x = element_text(colour = mid_text, size = 10),
+      plot.title.position = "plot",
+      legend.position = "top",
+      panel.grid = element_line(colour = "#F3F4F5"),
+      plot.caption = element_text(size = rel(0.7), margin = margin(8, 0, 0, 0)),
+      plot.margin = margin(0.25, 0.25, 0.25, 0.25, "cm"),
+      panel.grid.minor = element_blank(),
+      panel.grid.major.x = element_blank()
+    )
+}
+
+COLORS <- c("#9a133d", "#b93961", "#d8527c", "#f28aaa", "#f9b4c9", "#f9e0e8", "#ffffff", "#eaf3ff", "#c5daf6", "#a1c2ed", "#6996e3", "#4060c8", "#1a318b")
+```
+
+```{r}
+election_data <- read_dta("../data/CCES Cumulative/cumulative_2006-2023.dta")
+census_data <- read_ipums_ddi("../data/IPUMS/usa_00003.xml") %>%
+  read_ipums_micro()
+states_data <- read_csv("../data/MEDSL/State Presidential Election Returns/1976-2020-president.csv")
+```
+
+```{r}
+stt.label <- c(state.name[1:8], "DC", state.name[9:50])
+eth.label <- c("White", "Black", "Hispanic", "Other")
+inc.label <- c("$0-20k", "$20-40k", "$40-75k", "$75-150k", "$150k+")
+age.label <- c("18-29", "30-44", "45-64", "65+")
+sex.label <- c("Male", "Female")
+edu.label <- c("< HS", "HS", "Some College", "College", "Post-Grad")
+```
+
+## 2008 Election
+
+```{r}
+election_data %>% 
+  count(inc_cces = as_factor(faminc)) %>% 
+  mutate(prop = n/sum(n)) %>% 
+  filter(!inc_cces %in% c(NA, "Skipped", "Prefer not to say")) %>% 
+  ggplot(aes(prop, inc_cces)) + 
+  geom_col() + 
+  scale_x_continuous(labels = scales::percent, expand = c(0, 0.01)) +
+  labs(title = "Income categories distribution in CCES dataset", 
+       x = "", y = "") +
+  theme_benedict() + 
+  theme(axis.text.y = element_text(size = 10))
+
+ggsave("../figures/income_distribution.jpg", width = 10, height = 7)
+```
+
+```{r}
+election_data %>% 
+  count(race = as_factor(race)) %>% 
+  mutate(prop = n/sum(n)) %>% 
+  ggplot(aes(prop, race)) + 
+  geom_col() + 
+  scale_x_continuous(labels = scales::percent, expand = c(0, 0.01)) +
+  labs(title = "Race categories distribution in CCES dataset", 
+       x = "", y = "") +
+  theme_benedict() + 
+  theme(axis.text.y = element_text(size = 10))
+
+ggsave("../figures/race_distribution.jpg", width = 10, height = 7)
+```
+
+```{r}
+election_data %>% 
+  filter(year %in% seq(2008, 2020, 4)) %>% 
+  table1(~ as_factor(sex) + as_factor(educ) + as_factor(race)
+         | as_factor(year), data = .)
+```
+
+
+```{r}
+census_data %>% 
+  filter(YEAR %in% seq(2008, 2020, 4)) %>% 
+  table1(~ as_factor(SEX) + as_factor(EDUC) + as_factor(RACE)
+         | as_factor(YEAR), data = .)
+```
+
+
+### Preprocess CCES 2008 Election
+
+```{r}
+election_2008 <- election_data %>%
+  filter(year == 2008) %>%
+  select(case_id, state, gender, age, race, educ, faminc, voted_pres_08, weight) %>%
+  mutate(
+    income_group = factor(
+      case_when(
+        faminc %in% 1:2 ~ inc.label[1],
+        faminc %in% 3:4 ~ inc.label[2],
+        faminc %in% 5:7 ~ inc.label[3],
+        faminc %in% 8:11 ~ inc.label[4],
+        faminc == 12 ~ inc.label[5],
+        TRUE ~ NA_character_
+      ),
+      levels = inc.label
+    ),
+    age_group = factor(
+      case_when(
+        age %in% 18:29 ~ age.label[1],
+        age %in% 30:44 ~ age.label[2],
+        age %in% 45:64 ~ age.label[3],
+        age >= 65 ~ age.label[4],
+        TRUE ~ NA_character_,
+      ),
+      levels = age.label,
+      ordered = TRUE
+    ),
+    educ_group = factor(
+      case_when(
+        educ == 1 ~ edu.label[1],
+        educ == 2 ~ edu.label[2],
+        educ == 3 ~ edu.label[3],
+        educ %in% 4:5 ~ edu.label[4],
+        educ == 6 ~ edu.label[5],
+        TRUE ~ NA_character_
+      ),
+      levels = edu.label
+    ),
+    race = factor(if_else(!race %in% 1:3, "Other", as_factor(race))),
+    sex = as_factor(gender),
+    state = as_factor(state), 
+    state = if_else(state == "District of Columbia", "DC", state),
+    income_lab = labelled(income_group)
+  ) %>%
+  mutate(vote_rep = case_when(
+    voted_pres_08 == 2 ~ 1,
+    voted_pres_08 == 1 ~ 0,
+    TRUE ~ NA_real_
+  )) %>%
+  drop_na(vote_rep, income_group)
+```
+
+```{r}
+election_2008 %>%
+  mutate(
+    income_group = factor(
+      case_when(
+        faminc %in% 1:2 ~ inc.label[1],
+        faminc %in% 3:4 ~ inc.label[2],
+        faminc %in% 5:7 ~ inc.label[3],
+        faminc %in% 8:11 ~ inc.label[4],
+        faminc == 12 ~ inc.label[5],
+        TRUE ~ NA_character_
+      ),
+      levels = inc.label
+    ),
+    vote_repub = case_when(
+      voted_pres_08 == 2 ~ 1,
+      voted_pres_08 == 1 ~ 0,
+      TRUE ~ NA_real_
+    )
+  ) %>%
+  drop_na(income_group, vote_repub) %>%
+  group_by(income_group) %>%
+  summarise(vote_repub = mean(vote_repub)) %>%
+  ungroup() %>%
+  ggplot(aes(income_group, vote_repub, group = 1)) +
+  geom_line()
+```
+
+
+```{r}
+election_income <- election_2008 %>%
+  mutate(
+    vote_major = case_when(
+      voted_pres_08 == 1 ~ "Obama",
+      voted_pres_08 == 2 ~ "McCain",
+      TRUE ~ NA_character_
+    )
+  ) %>%
+  drop_na(income_group) %>%
+  filter(race == "White") %>%
+  mutate(
+    vote_rep = if_else(vote_major == "McCain", 1, 0),
+    state = as_factor(state)
+  ) %>%
+  group_by(state, income_group) %>%
+  summarise(vote_rep = mean(vote_rep)) %>%
+  ungroup()
+
+
+color_map <- c(
+  "Connecticut" = "red", "Ohio" = "blue",
+  "Mississippi" = "green", "Other" = "grey"
+)
+
+election_income %>%
+  mutate(highlight = case_when(
+    state == "Connecticut" ~ "Connecticut",
+    state == "Ohio" ~ "Ohio",
+    state == "Mississippi" ~ "Mississippi",
+    TRUE ~ "Other"
+  )) %>%
+  ggplot(aes(income_group, vote_rep, group = state, color = highlight)) +
+  geom_line(data = . %>% filter(highlight == "Other"), alpha = 0.5, linewidth = 0.8) +
+  geom_line(data = . %>% filter(highlight != "Other"), linewidth = 0.8) +
+  scale_colour_manual(values = color_map) +
+  theme_minimal()
+```
+
+
