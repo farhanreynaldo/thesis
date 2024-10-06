@@ -1,0 +1,64 @@
+---
+title: "Data exploration"
+author: "Farhan Reynaldo"
+date: "2024-09-26"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+here::i_am("scripts/data-import.Rmd")
+```
+
+```{r}
+library(ipumsr)
+library(tidyverse)
+library(tidycensus)
+```
+
+
+```{r}
+samples <- c("us2008a", "us2012a", "us2016a", "us2020a")
+variables <- c("SEX", "AGE", "RACE", "EDUC", "HHINCOME", "STATEFIP", "HISPAN")
+
+usa_extract_definition <- define_extract_micro(
+  collection = "usa",
+  description = "Extract for Post-Stratification of the United States",
+  samples = samples,
+  variables = variables
+)
+usa_extract_submitted <- submit_extract(usa_extract_definition)
+usa_extract_complete <- wait_for_extract(usa_extract_submitted)
+filepath <- download_extract(usa_extract_submitted, download_dir = "../data/")
+
+ddi <- read_ipums_ddi("data/IPUMS/usa_00003.xml")
+usa_data <- read_ipums_micro(ddi)
+```
+
+```{r}
+years <- c(2008, 2012, 2016, 2019)
+
+my_vars <- c(
+  total_pop = "B01003_001",
+  median_income = "B19013_001"
+  )
+
+state_pop_income <- map_dfr(
+  years,
+  ~ get_acs(
+      geography = "state",
+      variables = my_vars,
+      year = .x,
+      survey = "acs1",
+      geometry = FALSE
+      ) %>% mutate(year = .x)
+  ) %>%
+  arrange(variable, NAME)
+
+state_pop_income %>%
+  select(-moe) %>%
+  pivot_wider(names_from = variable, values_from = estimate) %>%
+  write_csv("../data/state_pop_income.csv")
+```
+
+
