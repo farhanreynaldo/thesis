@@ -1,0 +1,609 @@
+---
+title: "Data exploration"
+author: "Farhan Reynaldo"
+date: "2024-09-26"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+here::i_am("scripts/data-exploration.Rmd")
+```
+
+```{r}
+# Data wrangling
+library(tidyverse)
+library(here)
+library(haven)
+library(janitor)
+library(ipumsr)
+library(arm)
+library(conflicted)
+
+# Bayesian
+library(brms)
+library(rstanarm)
+library(tidybayes)
+library(lme4)
+
+# Maps
+library(ggtext)
+library(usmap)
+library(sf)
+
+source("../src/helpers.R")
+
+conflicts_prefer(
+  dplyr::filter(),
+  dplyr::select(),
+)
+
+map_data <- usmap::us_map(regions = "states")
+
+theme_maps <- function(base_size = 12,
+                       dark_text = "#1A242F") {
+  mid_text <- monochromeR::generate_palette(dark_text, "go_lighter", n_colours = 5)[2]
+  light_text <- monochromeR::generate_palette(dark_text, "go_lighter", n_colours = 5)[3]
+
+  theme_void(base_size = base_size) +
+    theme(
+      text = element_text(colour = mid_text, family = "IBM Plex Sans", lineheight = 1.1),
+      plot.title = element_textbox_simple(colour = dark_text, family = "IBM Plex Sans", face = "bold", size = rel(1.6), margin = margin(12, 0, 12, 0)),
+      plot.subtitle = element_textbox_simple(size = rel(1), face = "italic", margin = margin(5, 0, 40, 0)),
+      plot.title.position = "plot",
+      legend.title = element_text(size = rel(0.9)),
+      plot.caption = element_text(size = rel(0.8), margin = margin(8, 0, 0, 0)),
+      plot.margin = margin(0.25, 0.25, 0.25, 0.25, "cm"),
+    )
+}
+```
+
+```{r}
+election_all <- read_dta("../data/CCES Cumulative/cumulative_2006-2023.dta")
+usa_data <- read_ipums_ddi("../data/IPUMS/usa_00003.xml") %>%
+  read_ipums_micro()
+states_election_data <- read_csv("../data/MEDSL/State Presidential Election Returns/1976-2020-president.csv")
+states_pop_income_data <- read_csv("../data/state_pop_income.csv") %>%
+  mutate(
+    state = str_to_upper(NAME),
+    # Because 2020 ACS 1-year data not available
+    year = if_else(year == 2019, 2020, year)
+  ) %>%
+  select(-c(NAME, GEOID))
+```
+
+```{r}
+reg.lkup <- c(3,4,4,3,4,4,1,1,5,3,3,4,4,2,2,2,2,3,3,1,1,1,2,2,3,2,4,2,4,1,1,4,1,3,2,2,3,4,1,1,3,2,3,3,4,1,3,4,1,2,4)
+stt.label <- c(state.name[1:8], "DC", state.name[9:50])
+stt.abb.label <- c(state.abb[1:8], "DC", state.abb[9:50])
+eth.label <- c("White", "Black", "Hispanic", "Other")
+inc.label <- c("$0-20k", "$20-40k", "$40-75k", "$75-150k", "$150k+")
+age.label <- c("18-29", "30-44", "45-64", "65+")
+sex.label <- c("Male", "Female")
+educ.label <- c("< HS", "HS", "Some College", "College", "Post-Grad")
+
+stt_dict <- data.frame(
+  state_abbr = stt.abb.label, state_id = 1:51
+)
+```
+
+### Preprocess IPUMS ACS 1-year 2012 data for poststratification
+
+## Second iteration
+
+```{r}
+survey_covariates <- c(
+  "case_id", "year", "gender", "income_group", "age_group", "educ_group",
+  "race", "state", "vote", "weight"
+)
+poststrat_covariates <- c(
+  "cell_id", "sex", "income_group", "age_group",
+  "educ_group", "race", "state"
+)
+```
+
+```{r}
+states_election <- states_election_data %>%
+  filter(party_detailed %in% c("DEMOCRAT", "REPUBLICAN"), year > 2004) %>%
+  group_by(year, state, state_abbr = state_po, party_detailed, totalvotes) %>%
+  summarise(candidatevotes = sum(candidatevotes)) %>%
+  ungroup() %>%
+  pivot_wider(names_from = party_detailed, values_from = candidatevotes) %>%
+  rename(dem_votes = DEMOCRAT, rep_votes = REPUBLICAN)
+
+states_data <- states_election %>%
+  left_join(states_pop_income_data, by = c("state", "year")) %>%
+  group_by(state) %>%
+  mutate(
+    rep_votes_prev = dplyr::lag(rep_votes),
+    dem_votes_prev = dplyr::lag(dem_votes),
+    votes_prev = dplyr::lag(totalvotes)
+  ) %>%
+  ungroup() %>%
+  left_join(stt_dict, by = c("state_abbr" = "state_abbr")) %>%
+  mutate(state = haven::labelled(state_id,
+    labels = setNames(1:(length(stt.label) + 1), c(stt.label, "NA"))
+  ), 
+  state_id = factor(state_id),
+  z_incstt = rescale(median_income),
+  z_trnprv = rescale(votes_prev),
+  z_repprv = rescale(rep_votes_prev))
+```
+
+```{r}
+# TO DO: Which weight should I use?
+# Should I filter by vv_turnout_gvm and those who votes?
+election_processed <- election_all %>%
+  select(case_id, year, gender, age, race, educ, faminc, state, voted_pres_08,
+    voted_pres_12, voted_pres_16, voted_pres_20,
+    weight = weight_cumulative,
+    vv_turnout_gvm
+  ) %>%
+  mutate(vote = case_when(
+    year == 2008 ~ as_factor(voted_pres_08),
+    year == 2012 ~ as_factor(voted_pres_12),
+    year == 2016 ~ as_factor(voted_pres_16),
+    year == 2020 ~ as_factor(voted_pres_20),
+    TRUE ~ NA_character_
+  )) %>%
+  mutate(
+    income_group = haven::labelled(
+      case_when(
+        faminc %in% 1:2 ~ 1,
+        faminc %in% 3:4 ~ 2,
+        faminc %in% 5:7 ~ 3,
+        faminc %in% 8:11 ~ 4,
+        faminc == 12 ~ 5,
+        TRUE ~ NA_integer_
+      ),
+      labels = setNames(1:(length(inc.label) + 1), c(inc.label, "NA"))
+    ),
+    age_group = haven::labelled(
+      case_when(
+        age %in% 18:29 ~ 1,
+        age %in% 30:44 ~ 2,
+        age %in% 45:64 ~ 3,
+        age >= 65 ~ 4,
+        TRUE ~ NA_integer_
+      ),
+      labels = setNames(1:(length(age.label) + 1), c(age.label, "NA"))
+    ),
+    educ_group = haven::labelled(
+      case_when(
+        educ == 1 ~ 1,
+        educ == 2 ~ 2,
+        educ == 3 ~ 3,
+        educ %in% 4:5 ~ 4,
+        educ == 6 ~ 5,
+        TRUE ~ NA_integer_
+      ),
+      labels = setNames(1:(length(educ.label) + 1), c(educ.label, "NA"))
+    ),
+    race = haven::labelled(if_else(!race %in% 1:3, 4, race),
+      labels = setNames(1:(length(eth.label) + 1), c(eth.label, "NA"))
+    )
+  ) %>%
+  filter(vv_turnout_gvm == 1)
+```
+
+```{r}
+poststrat_2012 <- usa_data %>%
+  filter(YEAR == 2012) %>%
+  filter(AGE >= 18) %>%
+  mutate(
+    case_id = str_c(SERIAL, SAMPLE, PERNUM),
+    income_group = haven::labelled(
+      case_when(
+        between(HHINCOME, -Inf, 20000) ~ 1,
+        between(HHINCOME, 20001, 40000) ~ 2,
+        between(HHINCOME, 40001, 75000) ~ 3,
+        between(HHINCOME, 75001, 150000) ~ 4,
+        HHINCOME > 150000 ~ 5,
+        TRUE ~ NA_integer_
+      ),
+      labels = setNames(1:(length(inc.label) + 1), c(inc.label, "NA"))
+    ),
+    age_group = haven::labelled(
+      case_when(
+        between(AGE, 18, 29) ~ 1,
+        between(AGE, 30, 44) ~ 2,
+        between(AGE, 45, 64) ~ 3,
+        AGE >= 65 ~ 4,
+        TRUE ~ NA_integer_
+      ),
+      labels = setNames(1:(length(age.label) + 1), c(age.label, "NA"))
+    ),
+    race = haven::labelled(
+      case_when(
+        HISPAN > 0 ~ 2, # Hispanic
+        RACE == 1 & HISPAN == 0 ~ 1, # Non-hispanic White
+        RACE == 2 & HISPAN == 0 ~ 3, # Non-hispanic Black
+        TRUE ~ 4 # Other
+      ),
+      labels = setNames(1:(length(eth.label) + 1), c(eth.label, "NA"))
+    ),
+    educ_group = haven::labelled(
+      case_when(
+        EDUC %in% 0:3 ~ 1,
+        EDUC == 6 & EDUCD %in% 65:66 ~ 3,
+        EDUC %in% 4:6 ~ 2,
+        EDUC %in% 7:10 ~ 4,
+        EDUC == 11 ~ 5,
+        TRUE ~ NA_integer_
+      ),
+      labels = setNames(1:(length(educ.label) + 1), c(educ.label, "NA"))
+    ),
+    state = STATEFIP,
+    gender = SEX
+  ) %>%
+  count(gender, age = age_group, eth = race, educ = educ_group, 
+        inc = income_group, stt = state)
+```
+
+```{r}
+dat.pop %>% 
+  filter(stt > 0, eth > 0, inc > 0, age > 0) %>% 
+  count(stt, eth, inc, age) %>% 
+  left_join(poststrat_2012 %>%filter(stt > 0, eth > 0, inc > 0, age > 0) %>% 
+              count(stt, eth, inc, age), by = c("stt", "eth", "inc", "age"), 
+            suffix = c("_pop", "_dat"))
+```
+
+
+```{r}
+election_subset <- election_processed %>%
+  filter(year == 2012, !is.na(vote)) %>% 
+  mutate(age = age_group, 
+         vote = ifelse(vote == "Mitt Romney", 1, 0)) %>% 
+  rename(stt = state, eth = race, inc = income_group) 
+
+data_matrix <- as.data.frame(expand.grid(
+  1:length(stt.label), 1:length(eth.label),
+  1:length(inc.label), 1:length(age.label)
+))
+colnames(data_matrix) <- c("stt", "eth", "inc", "age")
+data_matrix$age <- factor(data_matrix$age)
+data_matrix$eth <- factor(data_matrix$eth)
+data_matrix$inc <- factor(data_matrix$inc)
+data_matrix$stt <- factor(data_matrix$stt)
+
+data_matrix$grp <- apply(data_matrix, 1, paste, collapse = "_")
+data_matrix$ix <- 1:nrow(data_matrix)
+
+data_matrix <- data_matrix %>% 
+  left_join(filter(states_data, year == 2012), by = c("stt" = "state_id")) %>% 
+  mutate(reg = factor(reg.lkup[stt]),
+         z_inc = rescale(inc))
+
+election_subset$grp <- apply(election_subset[, c("stt", "eth", "inc", "age")], 1, paste, collapse = "_")
+election_subset$ones <- 1
+
+data_matrix <- calc_and_add_weighted_results(data_matrix, election_subset)
+reg_formula <- as.formula(build_formula(level = 3))
+```
+
+```{r}
+start.time <- Sys.time()
+mod <- stan_glmer(reg_formula,
+  data = data_matrix, family = binomial(link = "logit"),
+  iter = 500
+)
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+
+pred <- posterior_epred(mod, newdata = data_matrix)
+```
+
+```{r}
+## poststratification
+dat.pop$grp <- apply(dat.pop[, c("stt", "eth", "inc", "age")], 1, paste, collapse="_")
+data_pop_info <- summarize(group_by(dat.pop, grp),
+                           pop2004=sum(wtd2004),
+                           pop2008=sum(wtd2008))
+data_matrix <- merge(x=data_matrix, y=data_pop_info, by="grp", all.x=T)
+data_matrix <- data_matrix[order(data_matrix$ix),]
+```
+
+
+```{r, fig.width=12, fig.height=12}
+data_matrix %>% 
+  mutate(pred = colMeans(pred)) %>% 
+  group_by(stt, inc) %>% 
+  summarise(
+    pred_all = sum(pred * pop2008, na.rm = TRUE) / sum(pop2008, na.rm = TRUE), 
+    pred_white = sum(pred[eth == 1] * pop2008[eth == 1]) / sum(pop2008[eth == 1])
+  ) %>% 
+  ungroup() %>% 
+  left_join(mutate(stt_dict, state_id = factor(state_id)), by = c("stt" = "state_id")) %>% 
+  filter(!state_abbr %in% c("AK", "HI", "DC")) %>%
+  left_join(states_data %>% filter(year == 2012) %>% select(state_abbr, rep_votes), by = c("state_abbr" = "state_abbr")) %>% 
+  mutate(state_name = fct_reorder(state_abbr, rep_votes, .desc = TRUE)) %>% 
+  ggplot(aes(group = 1)) +
+  geom_line(aes(x = inc, y = pred_all, color = "grey")) + 
+  geom_line(aes(x = inc, y = pred_white, color = "orange")) + 
+  scale_x_discrete(labels = c("poor", "", "mid", "", "rich")) +
+  scale_y_continuous(labels = scales::label_percent(), breaks = seq(0, 1, 0.5)) +
+  scale_color_identity() +
+  labs(x = "", y = "") +
+  coord_cartesian(ylim = c(0, 1)) +
+  facet_wrap(~state_name, ncol = 7) +
+  theme_classic() +
+  theme(
+    plot.title = element_text(hjust = 0.5, margin = margin(0, 0, 20, 0)),
+    plot.caption = element_text(hjust = 0.5, margin = margin(10, 0, 0, 0)),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    strip.text = element_text(size = 10),
+    legend.position = "none"
+  )
+```
+
+
+
+## First iteration
+
+```{r}
+election_2012 <- election_all %>%
+  filter(year == 2012) %>%
+  select(case_id, state, gender, age, race, educ, faminc, voted_pres_12) %>%
+  mutate(
+    income_group = factor(
+      case_when(
+        faminc %in% 1:2 ~ inc.label[1],
+        faminc %in% 3:4 ~ inc.label[2],
+        faminc %in% 5:7 ~ inc.label[3],
+        faminc %in% 8:11 ~ inc.label[4],
+        faminc == 12 ~ inc.label[5],
+        TRUE ~ NA_character_
+      ),
+      levels = inc.label
+    ),
+    age_group = factor(
+      case_when(
+        age %in% 18:29 ~ age.label[1],
+        age %in% 30:44 ~ age.label[2],
+        age %in% 45:64 ~ age.label[3],
+        age >= 65 ~ age.label[4],
+        TRUE ~ NA_character_
+      ),
+      levels = age.label
+    ),
+    educ_group = factor(
+      case_when(
+        educ == 1 ~ educ.label[1],
+        educ == 2 ~ educ.label[2],
+        educ == 3 ~ educ.label[3],
+        educ %in% 4:5 ~ educ.label[4],
+        educ == 6 ~ educ.label[5],
+        TRUE ~ NA_character_
+      ),
+      levels = educ.label
+    ),
+    race = factor(if_else(!race %in% 1:3, "Other", as_factor(race))),
+    sex = as_factor(gender),
+    state = as_factor(state)
+  ) %>%
+  mutate(vote_rep = case_when(
+    voted_pres_12 == 2 ~ 1,
+    voted_pres_12 == 1 ~ 0,
+    TRUE ~ NA_real_
+  )) %>%
+  drop_na(vote_rep, income_group)
+```
+
+```{r}
+poststrat_2012 <- usa_data %>%
+  filter(YEAR == 2012) %>%
+  filter(AGE >= 18) %>%
+  mutate(
+    income_group = factor(
+      case_when(
+        between(HHINCOME, -Inf, 20000) ~ inc.label[1],
+        between(HHINCOME, 20001, 40000) ~ inc.label[2],
+        between(HHINCOME, 40001, 75000) ~ inc.label[3],
+        between(HHINCOME, 75001, 150000) ~ inc.label[4],
+        HHINCOME > 150000 ~ inc.label[5],
+        TRUE ~ NA_character_
+      ),
+      levels = inc.label
+    ),
+    age_group = factor(
+      case_when(
+        between(AGE, 18, 29) ~ age.label[1],
+        between(AGE, 30, 44) ~ age.label[2],
+        between(AGE, 45, 64) ~ age.label[3],
+        AGE >= 65 ~ age.label[4],
+        TRUE ~ NA_character_
+      ),
+      levels = age.label
+    ),
+    race = factor(
+      case_when(
+        HISPAN > 0 ~ "Hispanic",
+        RACE == 1 & HISPAN == 0 ~ "White",
+        RACE == 2 & HISPAN == 0 ~ "Black",
+        TRUE ~ "Other"
+      )
+    ),
+    educ_group = factor(
+      case_when(
+        EDUC %in% 0:3 ~ educ.label[1],
+        EDUC == 6 & EDUCD %in% 65:66 ~ educ.label[3],
+        EDUC %in% 4:6 ~ educ.label[2],
+        EDUC %in% 7:10 ~ educ.label[4],
+        EDUC == 11 ~ educ.label[5],
+        TRUE ~ NA_character_
+      ),
+      levels = educ.label
+    ),
+    state = as_factor(STATEFIP),
+    sex = as_factor(SEX)
+  ) %>%
+  count(sex, age_group, income_group, race, educ_group, state)
+```
+
+```{r}
+if (!file.exists("fit_2012.rds")) {
+  election_2012_grouped <- election_2012 %>%
+    group_by(state, income_group, age_group, race, educ_group) %>%
+    summarise(vote_rep = sum(vote_rep), vote_total = n()) %>%
+    ungroup()
+
+  fit_2012 <- stan_glmer(
+    cbind(vote_rep, vote_total - vote_rep) ~ (1 | state) +
+      (1 | income_group) + (1 | age_group) + (1 | race) +
+      (1 | educ_group),
+    data = election_2012_grouped, family = binomial("logit")
+  )
+} else {
+  fit_2012 <- readRDS("fit_2012.rds")
+}
+
+# posterior_prob <- posterior_epred(fit_2012, newdata = poststrat_2012)
+# poststrat_prob <- posterior_prob %*% poststrat_2012$n / sum(poststrat_2012$n)
+# c(mean = mean(poststrat_prob), sd = sd(poststrat_prob))
+```
+
+```{r}
+income_prop <- poststrat_2012 %>%
+  group_by(income_group) %>%
+  mutate(prop = n / sum(n)) %>%
+  ungroup()
+```
+
+```{r, fig.width=12, fig.height=8}
+income_state_prop <- poststrat_2012 %>%
+  group_by(income_group, state) %>%
+  mutate(prop = n / sum(n)) %>%
+  ungroup()
+
+res_income_state <- income_state_prop %>%
+  add_epred_draws(fit_2012) %>%
+  mutate(pred_prop = .epred * prop) %>%
+  group_by(income_group, state, .draw) %>%
+  summarise(pred = sum(pred_prop)) %>%
+  group_by(income_group, state) %>%
+  summarise(
+    mean = mean(pred),
+    lower = quantile(pred, 0.025),
+    upper = quantile(pred, 0.975)
+  ) %>%
+  ungroup()
+
+map_data %>%
+  left_join(res_income_state, by = c("full" = "state")) %>%
+  ggplot() +
+  geom_sf(aes(fill = mean)) +
+  facet_wrap(~income_group) +
+  coord_sf() +
+  scale_fill_gradient2(
+    low = "#2c7fb8", mid = "#f7f7f7", high = "#d73027",
+    midpoint = 0.5, labels = scales::percent_format()
+  ) +
+  theme_maps() +
+  theme(strip.text.x = element_text(size = 14)) +
+  labs(title = "Estimated Republican vote share across income by state")
+```
+
+```{r, fig.width=12, fig.height=8}
+educ_state_prop <- poststrat_2012 %>%
+  group_by(educ_group, state) %>%
+  mutate(prop = n / sum(n)) %>%
+  ungroup()
+
+res_educ_state <- educ_state_prop %>%
+  add_epred_draws(fit_2012) %>%
+  mutate(pred_prop = .epred * prop) %>%
+  group_by(educ_group, state, .draw) %>%
+  summarise(pred = sum(pred_prop)) %>%
+  group_by(educ_group, state) %>%
+  summarise(
+    mean = mean(pred),
+    lower = quantile(pred, 0.025),
+    upper = quantile(pred, 0.975)
+  ) %>%
+  ungroup()
+
+map_data %>%
+  left_join(res_educ_state, by = c("full" = "state")) %>%
+  # mutate(mean_c = mean - 0.5) %>%
+  ggplot() +
+  geom_sf(aes(fill = mean)) +
+  facet_wrap(~educ_group) +
+  coord_sf() +
+  scale_fill_gradient2(
+    low = "#2c7fb8", mid = "#f7f7f7", high = "#d73027",
+    midpoint = 0.5, labels = scales::percent_format()
+  ) +
+  theme_maps() +
+  theme(strip.text.x = element_text(size = 14)) +
+  labs(title = "Estimated Republican vote share across education by state")
+```
+
+```{r, fig.width=12, fig.height=8}
+race_state_prop <- poststrat_2012 %>%
+  group_by(race, state) %>%
+  mutate(prop = n / sum(n)) %>%
+  ungroup()
+
+race_state_prop <- race_state_prop %>%
+  add_epred_draws(fit_2012) %>%
+  mutate(pred_prop = .epred * prop) %>%
+  group_by(race, state, .draw) %>%
+  summarise(pred = sum(pred_prop)) %>%
+  group_by(race, state) %>%
+  summarise(
+    mean = mean(pred),
+    lower = quantile(pred, 0.025),
+    upper = quantile(pred, 0.975)
+  ) %>%
+  ungroup()
+
+map_data %>%
+  left_join(race_state_prop, by = c("full" = "state")) %>%
+  ggplot() +
+  geom_sf(aes(fill = mean)) +
+  facet_wrap(~race) +
+  coord_sf() +
+  scale_fill_gradient2(
+    low = "#2c7fb8", mid = "#f7f7f7", high = "#d73027",
+    midpoint = 0.5, labels = scales::percent_format()
+  ) +
+  theme_maps() +
+  theme(strip.text.x = element_text(size = 14)) +
+  labs(title = "Estimated Republican vote share across ethnicity by state")
+```
+
+```{r}
+income_state_age_prop <- poststrat_2012 %>%
+  group_by(income_group, age_group, state) %>%
+  mutate(prop = n / sum(n)) %>%
+  ungroup()
+
+res_income_state_age <- income_state_age_prop %>%
+  add_epred_draws(fit_2012) %>%
+  mutate(pred_prop = .epred * prop) %>%
+  group_by(income_group, age_group, state, .draw) %>%
+  summarise(pred = sum(pred_prop)) %>%
+  group_by(income_group, state) %>%
+  summarise(
+    mean = mean(pred),
+    lower = quantile(pred, 0.025),
+    upper = quantile(pred, 0.975)
+  ) %>%
+  ungroup()
+
+map_data %>%
+  left_join(res_income_state_age, by = c("full" = "state")) %>%
+  ggplot() +
+  geom_sf(aes(fill = mean)) +
+  facet_grid(vars(age_group), vars(age_group)) +
+  coord_sf() +
+  scale_fill_gradient2(
+    low = "#2c7fb8", mid = "#f7f7f7", high = "#d73027",
+    midpoint = 0.5, labels = scales::percent_format()
+  ) +
+  theme_maps() +
+  theme(strip.text.x = element_text(size = 14)) +
+  labs(title = "Estimated Republican vote share across income by state")
+```
