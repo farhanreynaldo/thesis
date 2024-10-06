@@ -36,6 +36,7 @@ source("../src/helpers.R")
 conflicts_prefer(
   dplyr::filter(),
   dplyr::select(),
+  dplyr::lag()
 )
 
 map_data <- usmap::us_map(regions = "states")
@@ -60,14 +61,15 @@ theme_maps <- function(base_size = 12,
 
 ```{r}
 election_all <- read_dta("../data/CCES Cumulative/cumulative_2006-2023.dta")
-usa_data <- read_ipums_ddi("../data/IPUMS/usa_00003.xml") %>%
-  read_ipums_micro()
+# usa_data <- read_ipums_ddi("../data/IPUMS/usa_00003.xml") %>%
+#   read_ipums_micro()
+usa_data <- read.table("../data/census-pums-pop-2000-04-08.dat", header = TRUE, 
+                       sep = "\t")
 states_election_data <- read_csv("../data/MEDSL/State Presidential Election Returns/1976-2020-president.csv")
 states_pop_income_data <- read_csv("../data/state_pop_income.csv") %>%
   mutate(
     state = str_to_upper(NAME),
-    # Because 2020 ACS 1-year data not available
-    year = if_else(year == 2019, 2020, year)
+    year = if_else(year == 2019, 2020, year) # Because 2020 ACS 1-year data not available
   ) %>%
   select(-c(NAME, GEOID))
 ```

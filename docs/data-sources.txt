@@ -1,6 +1,6 @@
-constituency (state-level) returns for elections to the U.S. presidency from 1976 to 2020 is collected from the MIT Election Data and Science Lab. The data is available at https://dataverse.harvard.edu/dataset.xhtml?persistentId=doi:10.7910/DVN/42MVDX.
+Constituency (state-level) returns for elections to the U.S. presidency from 1976 to 2020 is collected from the MIT Election Data and Science Lab. The data is available at https://dataverse.harvard.edu/dataset.xhtml?persistentId=doi:10.7910/DVN/42MVDX.
 
-county-level returns for elections to the U.S. presidency from 2000 to 2020 is collected from the MIT Election Data and Science Lab. The data is available at https://dataverse.harvard.edu/dataset.xhtml?persistentId=doi:10.7910/DVN/VOQCHQ.
+County-level returns for elections to the U.S. presidency from 2000 to 2020 is collected from the MIT Election Data and Science Lab. The data is available at https://dataverse.harvard.edu/dataset.xhtml?persistentId=doi:10.7910/DVN/VOQCHQ.
 
 Survey data from Cooperative Congressional Election Study (CCES) for 2006 to 2023 is collected from the Harvard Dataverse. The data is available at https://dataverse.harvard.edu/dataset.xhtml?persistentId=doi%3A10.7910/DVN/II2DB6
 
