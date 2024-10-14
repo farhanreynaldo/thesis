@@ -1,5 +1,8 @@
 library(dplyr)
 library(stanRegression)
+library(conflicted)
+
+conflicts_prefer(arm::invlogit)
 
 # Calculate the weighted results
 calc_and_add_weighted_results <- function(data_matrix,result_info_matrix)

@@ -7,7 +7,7 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-here::i_am("scripts/data-exploration.Rmd")
+here::i_am("scripts/data-modeling.Rmd")
 ```
 
 ```{r}
@@ -31,42 +31,37 @@ library(ggtext)
 library(usmap)
 library(sf)
 
-source("../src/helpers.R")
+source(here::here("src/election.R"))
+source(here::here("src/helpers.R"))
+source(here::here("src/theme.R"))
+source(here::here("src/load_data.R"))
 
-conflicts_prefer(
-  dplyr::filter(),
-  dplyr::select(),
-  dplyr::lag()
-)
+options(mc.cores = parallel::detectCores())
 
 map_data <- usmap::us_map(regions = "states")
-
-theme_maps <- function(base_size = 12,
-                       dark_text = "#1A242F") {
-  mid_text <- monochromeR::generate_palette(dark_text, "go_lighter", n_colours = 5)[2]
-  light_text <- monochromeR::generate_palette(dark_text, "go_lighter", n_colours = 5)[3]
-
-  theme_void(base_size = base_size) +
-    theme(
-      text = element_text(colour = mid_text, family = "IBM Plex Sans", lineheight = 1.1),
-      plot.title = element_textbox_simple(colour = dark_text, family = "IBM Plex Sans", face = "bold", size = rel(1.6), margin = margin(12, 0, 12, 0)),
-      plot.subtitle = element_textbox_simple(size = rel(1), face = "italic", margin = margin(5, 0, 40, 0)),
-      plot.title.position = "plot",
-      legend.title = element_text(size = rel(0.9)),
-      plot.caption = element_text(size = rel(0.8), margin = margin(8, 0, 0, 0)),
-      plot.margin = margin(0.25, 0.25, 0.25, 0.25, "cm"),
-    )
-}
+poststrat_data <- read.table(here("data/census-pums-pop-2000-04-08.dat"), 
+                             sep = "\t", header = TRUE)
 ```
 
 ```{r}
-election_all <- read_dta("../data/CCES Cumulative/cumulative_2006-2023.dta")
-# usa_data <- read_ipums_ddi("../data/IPUMS/usa_00003.xml") %>%
-#   read_ipums_micro()
-usa_data <- read.table("../data/census-pums-pop-2000-04-08.dat", header = TRUE, 
-                       sep = "\t")
-states_election_data <- read_csv("../data/MEDSL/State Presidential Election Returns/1976-2020-president.csv")
-states_pop_income_data <- read_csv("../data/state_pop_income.csv") %>%
+fit_model <- function(election_processed, states_data, iter = 500) {
+  data_matrix <- expand.grid(
+    stt = factor(1:length(stt.label)),
+    eth = factor(1:length(eth.label)),
+    inc = factor(1:length(inc.label)),
+    age = factor(1:length(age.label))
+  ) %>%
+    mutate(
+      grp = apply(., 1, paste, collapse = "_"),
+      ix = row_number()
+    ) %>%
+    left_join(states_data, by = c("stt" = "stt")) %>%
+    mutate(
+      reg = factor(reg.lkup[as.numeric(stt)]),
+      z_inc = arm::rescale(as.numeric(inc))
+    )
+  
+  election_subset <- election_processed %>%
   mutate(
     state = str_to_upper(NAME),
     year = if_else(year == 2019, 2020, year) # Because 2020 ACS 1-year data not available
