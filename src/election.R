@@ -25,27 +25,29 @@ state_encoder <- setNames(1:51, c(state.name[1:8], "DC", state.name[9:50]))
 # Function to process states data
 process_states_data <- function(states_election_data, states_pop_income_data, year) {
   states_election <- states_election_data %>%
-    filter(party_detailed %in% c("DEMOCRAT", "REPUBLICAN"), year > 2000) %>%
-    group_by(year, state, state_abbr = state_po, party_detailed, totalvotes) %>%
-    summarise(votes = sum(candidatevotes), .groups = "drop") %>%
-    pivot_wider(names_from = party_detailed, values_from = votes, values_fill = list(votes = 0)) %>%
-    rename(dem_votes = DEMOCRAT, rep_votes = REPUBLICAN)
+    dplyr::filter(party_detailed %in% c("DEMOCRAT", "REPUBLICAN"), year > 2000) %>%
+    dplyr::group_by(year, state, state_abbr = state_po, party_detailed, totalvotes) %>%
+    dplyr::summarise(votes = sum(candidatevotes), .groups = "drop") %>%
+    tidyr::pivot_wider(names_from = party_detailed, values_from = votes, values_fill = list(votes = 0)) %>%
+    dplyr::rename(dem_votes = DEMOCRAT, rep_votes = REPUBLICAN) %>%
+    dplyr::mutate(dem_votes = dem_votes / totalvotes, rep_votes = rep_votes / totalvotes)
 
   states_data <- states_election %>%
-    left_join(states_pop_income_data, by = c("state", "year")) %>%
-    group_by(state) %>%
-    mutate(
+    dplyr::left_join(states_pop_income_data, by = c("state", "year")) %>%
+    dplyr::mutate(turnout = totalvotes / total_pop) %>%
+    dplyr::group_by(state) %>%
+    dplyr::mutate(
       rep_votes_prev = lag(rep_votes),
       dem_votes_prev = lag(dem_votes),
-      votes_prev = lag(totalvotes)
+      turnout_prev = lag(turnout)
     ) %>%
-    ungroup() %>%
-    filter(year == !!year) %>%
-    left_join(stt_dict, by = c("state_abbr" = "state_abbr")) %>%
-    mutate(
-      z_incstt = scales::rescale(median_income),
-      z_trnprv = scales::rescale(votes_prev),
-      z_repprv = scales::rescale(rep_votes_prev)
+    dplyr::ungroup() %>%
+    dplyr::filter(year == !!year) %>%
+    dplyr::left_join(stt_dict, by = c("state_abbr" = "state_abbr")) %>%
+    dplyr::mutate(
+      z_incstt = arm::rescale(median_income),
+      z_trnprv = arm::rescale(turnout_prev),
+      z_repprv = arm::rescale(rep_votes_prev)
     )
 }
 
@@ -64,17 +66,28 @@ process_election_data <- function(election_data, year) {
   }
 
   election_data %>%
-    select(case_id, year, gender, age, race, educ, faminc, state, weight = weight_cumulative, vv_turnout_gvm, vote = all_of(vote_column)) %>%
-    rename(age_detailed = age, stt = state) %>%
-    mutate(
+    dplyr::filter(year %in% !!year) %>%
+    dplyr::filter(vote %in% c("Republican", "Democratic")) %>%
+    dplyr::rename(age_detailed = age) %>%
+    dplyr::mutate(
+      # inc = factor(
+      #   case_when(
+      #     faminc %in% 1:2 ~ 1,
+      #     faminc %in% 3:4 ~ 2,
+      #     faminc %in% 5:7 ~ 3,
+      #     faminc %in% 8:11 ~ 4,
+      #     faminc == 12 ~ 5,
+      #     TRUE ~ NA_integer_
+      #   )
+      # ),
       inc = factor(
         case_when(
-          faminc %in% 1:2 ~ 1,
-          faminc %in% 3:4 ~ 2,
-          faminc %in% 5:7 ~ 3,
-          faminc %in% 8:11 ~ 4,
-          faminc == 12 ~ 5,
-          TRUE ~ -1
+          faminc %in% c("Less than 10k", "10k - 20k") ~ 1,
+          faminc %in% c("20k - 30k", "30k - 40k") ~ 2,
+          faminc %in% c("40k - 50k", "50k - 60k", "60k - 70k") ~ 3,
+          faminc %in% c("70k - 80k", "80k - 100k", "100k - 120k", "120k - 150k") ~ 4,
+          faminc == "150k+" ~ 5,
+          TRUE ~ NA_integer_
         )
       ),
       age = factor(
@@ -83,7 +96,7 @@ process_election_data <- function(election_data, year) {
           age_detailed %in% 30:44 ~ 2,
           age_detailed %in% 45:64 ~ 3,
           age_detailed >= 65 ~ 4,
-          TRUE ~ -1
+          TRUE ~ NA_integer_
         )
       ),
       educ = factor(
@@ -93,25 +106,23 @@ process_election_data <- function(election_data, year) {
           educ == 3 ~ 3,
           educ %in% 4:5 ~ 4,
           educ == 6 ~ 5,
-          TRUE ~ -1
+          TRUE ~ NA_integer_
         )
       ),
       eth = factor(
         if_else(!race %in% 1:3, 4, race)
       ),
-      stt = as_factor(stt, levels = "values")
+      state = if_else(state == "District of Columbia", "DC", state),
+      stt = factor(state_encoder[state])
     ) %>%
-    # This line filters the dataset to include only rows where the variable 'vv_turnout_gvm' equals 1
-    # and the 'vote' variable is not missing (NA). This is ensuring that only valid votes
-    # are considered in the analysis.
-    filter(vv_turnout_gvm == 1, !is.na(vote))
+    dplyr::filter(!is.na(vote))
 }
 
 # Define function to process IPUMS data for poststratification
 process_ipums_data <- function(ipums_data, year) {
-  ipums_data %>%
-    filter(YEAR == year, AGE >= 18) %>%
-    mutate(
+  ipums_agg <- ipums_data %>%
+    dplyr::filter(YEAR == year, AGE >= 18) %>%
+    dplyr::mutate(
       case_id = str_c(SERIAL, SAMPLE, PERNUM),
       income_group = factor(
         case_when(
@@ -120,7 +131,7 @@ process_ipums_data <- function(ipums_data, year) {
           between(HHINCOME, 40001, 75000) ~ 3,
           between(HHINCOME, 75001, 150000) ~ 4,
           HHINCOME > 150000 ~ 5,
-          TRUE ~ -1
+          TRUE ~ NA_integer_
         )
       ),
       age_group = factor(
@@ -129,7 +140,7 @@ process_ipums_data <- function(ipums_data, year) {
           between(AGE, 30, 44) ~ 2,
           between(AGE, 45, 64) ~ 3,
           AGE >= 65 ~ 4,
-          TRUE ~ -1
+          TRUE ~ NA_integer_
         )
       ),
       race = factor(
@@ -138,8 +149,7 @@ process_ipums_data <- function(ipums_data, year) {
           RACE == 1 & HISPAN == 0 ~ 1, # Non-hispanic White
           RACE == 2 & HISPAN == 0 ~ 3, # Non-hispanic Black
           TRUE ~ 4 # Other
-        ),
-        labels = eth.label
+        )
       ),
       educ_group = factor(
         case_when(
@@ -151,11 +161,14 @@ process_ipums_data <- function(ipums_data, year) {
           TRUE ~ NA_integer_
         )
       ),
-      state = as_factor(STATEFIP, levels = "values"),
+      state = as_factor(STATEFIP),
+      state = if_else(state == "District of Columbia", "DC", state),
+      state = factor(state_encoder[state]),
       sex = as_factor(SEX, levels = "values")
     ) %>%
-    group_by(sex, age = age_group, eth = race, educ = educ_group, inc = income_group, stt = state) %>% 
-    summarise(pop = n(), 
-              wtpop = sum(PERWT)) %>% 
-    ungroup()
-}
+    dplyr::group_by(sex, age = age_group, eth = race, educ = educ_group, inc = income_group, stt = state) %>%
+    dplyr::summarise(
+      pop = n(),
+      wtpop = sum(PERWT)
+    ) %>%
+    dplyr::ungroup()
