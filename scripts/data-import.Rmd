@@ -14,12 +14,15 @@ here::i_am("scripts/data-import.Rmd")
 library(ipumsr)
 library(tidyverse)
 library(tidycensus)
+library(here)
 ```
 
 
 ```{r}
-samples <- c("us2008a", "us2012a", "us2016a", "us2020a")
-variables <- c("SEX", "AGE", "RACE", "EDUC", "HHINCOME", "STATEFIP", "HISPAN")
+# samples <- c("us2008a", "us2012a", "us2016a", "us2020a")
+samples <- c("us2016c")
+variables <- c("SEX", "AGE", "RACE", "EDUC", "HHINCOME", "STATEFIP", "HISPAN",
+               "COUNTYFIP", "METRO")
 
 usa_extract_definition <- define_extract_micro(
   collection = "usa",
@@ -28,11 +31,12 @@ usa_extract_definition <- define_extract_micro(
   variables = variables
 )
 usa_extract_submitted <- submit_extract(usa_extract_definition)
-usa_extract_complete <- wait_for_extract(usa_extract_submitted)
-filepath <- download_extract(usa_extract_submitted, download_dir = "../data/")
+# ipumsr::is_extract_ready(usa_extract_submitted)
+# usa_extract_complete <- wait_for_extract(usa_extract_submitted)
+filepath <- download_extract(usa_extract_submitted, download_dir = here("data/IPUMS/"))
 
-ddi <- read_ipums_ddi("data/IPUMS/usa_00003.xml")
-usa_data <- read_ipums_micro(ddi)
+ddi <- read_ipums_ddi(here("data/IPUMS/usa_00006.xml"))
+ipums_data <- read_ipums_micro(ddi)
 ```
 
 ```{r}
