@@ -1,17 +1,17 @@
-library(tidyverse)
 library(arrow)
 library(ipumsr)
+library(tidyverse)
 
 election_all <- read_feather(here("data/CCES Cumulative/cumulative_2006-2023.feather"))
-ipums_data <- read_ipums_ddi("../data/IPUMS/usa_00004.xml") %>%
-  read_ipums_micro()
+# ipums_data <- read_ipums_ddi("../data/IPUMS/usa_00006.xml") %>%
+#   read_ipums_micro()
 states_election_data <- read_csv(here("data/MEDSL/State Presidential Election Returns/1976-2020-president.csv"))
 states_pop_income_data <- read_csv(here("data/state_pop_income.csv")) %>%
-  mutate(
+  dplyr::mutate(
     state = str_to_upper(NAME),
     year = if_else(year == 2019, 2020, year)
   ) %>%
-  select(-c(NAME, GEOID))
+  dplyr::select(-c(NAME, GEOID))
 
 # Define constants
 reg.lkup <- c(3, 4, 4, 3, 4, 4, 1, 1, 5, 3, 3, 4, 4, 2, 2, 2, 2, 3, 3, 1, 1, 1, 2, 2, 3, 2, 4, 2, 4, 1, 1, 4, 1, 3, 2, 2, 3, 4, 1, 1, 3, 2, 3, 3, 4, 1, 3, 4, 1, 2, 4)
@@ -22,6 +22,7 @@ inc.label <- c("$0-20k", "$20-40k", "$40-75k", "$75-150k", "$150k+")
 age.label <- c("18-29", "30-44", "45-64", "65+")
 sex.label <- c("Male", "Female")
 educ.label <- c("< HS", "HS", "Some College", "College", "Post-Grad")
+urban.rural.label <- c("Urban", "Rural")
 
 # Create state dictionary
 stt_dict <- data.frame(
