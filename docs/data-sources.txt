@@ -5,3 +5,5 @@ County-level returns for elections to the U.S. presidency from 2000 to 2020 is c
 Survey data from Cooperative Congressional Election Study (CCES) for 2006 to 2023 is collected from the Harvard Dataverse. The data is available at https://dataverse.harvard.edu/dataset.xhtml?persistentId=doi%3A10.7910/DVN/II2DB6
 
 Population size data for each cell is collected from the IPUMS-USA using their R library. The data is available at https://usa.ipums.org/usa/
+
+Urban and rural data is based on 2023 Office of Management and Budget (OMB) definition https://www.ers.usda.gov/data-products/rural-urban-continuum-codes/, https://www.ers.usda.gov/webdocs/DataFiles/53251/ruralurbancodes2013.xls?v=4020.1
