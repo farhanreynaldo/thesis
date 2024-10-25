@@ -3,7 +3,7 @@ library(tidyverse)
 library(here)
 library(haven)
 library(arm)
-library(conflicted)
+# library(conflicted)
 library(rstanarm)
 library(tidybayes)
 
@@ -12,13 +12,6 @@ here::i_am("src/election.R")
 
 # Source helper functions
 source(here("src/helpers.R"))
-
-# Resolve conflicts
-conflicts_prefer(
-  dplyr::filter(),
-  dplyr::select(),
-  dplyr::lag()
-)
 
 state_encoder <- setNames(1:51, c(state.name[1:8], "DC", state.name[9:50]))
 
