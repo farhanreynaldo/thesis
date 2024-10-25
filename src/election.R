@@ -53,19 +53,19 @@ process_states_data <- function(states_election_data, states_pop_income_data, ye
 
 # Process election data
 process_election_data <- function(election_data, year) {
-  vote_column <- case_when(
-    year == 2008 ~ "voted_pres_08",
-    year == 2012 ~ "voted_pres_12",
-    year == 2016 ~ "voted_pres_16",
-    year == 2020 ~ "voted_pres_20",
-    TRUE ~ NA_character_
-  )
-
-  if (is.na(vote_column)) {
-    stop(paste("Error: The vote column for the specified year =", year, "is not available."))
-  }
+  rural_urban_codes <- readxl::read_excel("../data/OEM/ruralurbancodes2013.xls") %>%
+    dplyr::rename(county_fips = FIPS) %>%
+    dplyr::mutate(metro = case_when(
+      str_starts(Description, "Nonmetro") ~ 1,
+      str_starts(Description, "Metro") ~ 2,
+      TRUE ~ NA_integer_
+    )) %>%
+    dplyr::select(county_fips, metro)
 
   election_data %>%
+    dplyr::select(case_id, year, gender, age, race, educ, faminc, state, county_fips,
+      weight = weight_cumulative, vv_turnout_gvm, vote = voted_pres_party
+    ) %>%
     dplyr::filter(year %in% !!year) %>%
     dplyr::filter(vote %in% c("Republican", "Democratic")) %>%
     dplyr::rename(age_detailed = age) %>%
@@ -115,6 +115,7 @@ process_election_data <- function(election_data, year) {
       state = if_else(state == "District of Columbia", "DC", state),
       stt = factor(state_encoder[state])
     ) %>%
+    dplyr::left_join(rural_urban_codes, by = "county_fips") %>%
     dplyr::filter(!is.na(vote))
 }
 
@@ -161,14 +162,41 @@ process_ipums_data <- function(ipums_data, year) {
           TRUE ~ NA_integer_
         )
       ),
+      metro = factor(
+        case_when(
+          METRO == 1 ~ 1,
+          METRO %in% c(2, 3, 4) ~ 2,
+          TRUE ~ NA_integer_
+        )
+      ),
       state = as_factor(STATEFIP),
       state = if_else(state == "District of Columbia", "DC", state),
       state = factor(state_encoder[state]),
       sex = as_factor(SEX, levels = "values")
     ) %>%
-    dplyr::group_by(sex, age = age_group, eth = race, educ = educ_group, inc = income_group, stt = state) %>%
+    dplyr::group_by(sex,
+      age = age_group, eth = race, educ = educ_group,
+      inc = income_group, metro, stt = state
+    ) %>%
     dplyr::summarise(
       pop = n(),
       wtpop = sum(PERWT)
     ) %>%
     dplyr::ungroup()
+
+  ipums_agg
+
+  # expand.grid(
+  #   sex = factor(1:length(sex.label)),
+  #   age = factor(1:length(age.label)),
+  #   eth = factor(1:length(eth.label)),
+  #   educ = factor(1:length(educ.label)),
+  #   inc = factor(1:length(inc.label)),
+  #   stt = factor(1:length(stt.label)),
+  #   metro = factor(1:length(metro.label))
+  # ) %>%
+  #   left_join(ipums_agg, by = c("sex", "age", "eth", "educ", "inc", "metro", "stt")) %>%
+  #   mutate(pop = replace_na(pop, 0),
+  #          wtpop = replace_na(wtpop, 0)) %>%
+  #   write_csv("../data/census-pums-pop-2016.csv")
+}
