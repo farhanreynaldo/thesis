@@ -1,8 +1,5 @@
 library(dplyr)
 library(stanRegression)
-library(conflicted)
-
-conflicts_prefer(arm::invlogit)
 
 # Calculate the weighted results
 calc_and_add_weighted_results <- function(data_matrix,result_info_matrix)
@@ -58,7 +55,7 @@ build_formula <- function(level)
 weighted_correction <- function(data_v, weights, x0) 
 {
   delta <- optimize(calc_delta_correction, interval=c(-5,5), data_v, weights, x0)$minimum
-  corrected <- invlogit(logit(data_v) + delta)
+  corrected <- arm::invlogit(logit(data_v) + delta)
   return(list(delta=delta, corrected=corrected))
 }
 
@@ -66,7 +63,7 @@ weighted_correction <- function(data_v, weights, x0)
 #and the sum of inverse logit of logit(data_v) plus delta
 calc_delta_correction <- function(delta, data_v, weights, x0) 
 {
-  abs(x0-sum(invlogit(logit(data_v) + delta)*weights))
+  abs(x0-sum(arm::invlogit(logit(data_v) + delta)*weights))
 }
 
 #Calculate the logit
