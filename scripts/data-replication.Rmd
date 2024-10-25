@@ -22,7 +22,77 @@ options(mc.cores = parallel::detectCores())
 ```
 
 ```{r}
-load("../../election_stan_analysis/Stan MRP R Code/stan-MRP-20120715.RData")
+# load("../../election_stan_analysis/Stan MRP R Code/stan-MRP-20120715.RData")
+src("../src/helpers.R")
+
+reg.lkup <- c(3,4,4,3,4,4,1,1,5,3,3,4,4,2,2,2,2,3,3,1,1,1,2,2,3,2,4,2,4,1,1,4,1,3,2,2,3,4,1,1,3,2,3,3,4,1,3,4,1,2,4)
+
+# Define constants
+reg.lkup <- c(3, 4, 4, 3, 4, 4, 1, 1, 5, 3, 3, 4, 4, 2, 2, 2, 2, 3, 3, 1, 1, 1, 2, 2, 3, 2, 4, 2, 4, 1, 1, 4, 1, 3, 2, 2, 3, 4, 1, 1, 3, 2, 3, 3, 4, 1, 3, 4, 1, 2, 4)
+stt.label <- c(state.name[1:8], "DC", state.name[9:50])
+stt.abb.label <- c(state.abb[1:8], "DC", state.abb[9:50])
+eth.label <- c("White", "Black", "Hispanic", "Other")
+inc.label <- c("$0-20k", "$20-40k", "$40-75k", "$75-150k", "$150k+")
+age.label <- c("18-29", "30-44", "45-64", "65+")
+sex.label <- c("Male", "Female")
+educ.label <- c("< HS", "HS", "Some College", "College", "Post-Grad")
+
+# Create state dictionary
+stt_dict <- data.frame(
+  state_name = stt.label, state_abbr = stt.abb.label, stt = factor(1:51)
+)
+
+### state-level data
+dat.stt <- read.table("../data/state-stats.dat", header=T, sep="\t")
+dat.stt$z.inc2000 <- rescale(dat.stt$inc2000)
+dat.stt$z.inc2004 <- rescale(dat.stt$inc2004)
+dat.stt$z.inc2007 <- rescale(dat.stt$inc2007)
+dat.stt$z.rep1996 <- rescale(dat.stt$rep1996)
+dat.stt$z.rep2000 <- rescale(dat.stt$rep2000)
+dat.stt$z.rep2004 <- rescale(dat.stt$rep2004)
+dat.stt$z.rep2008 <- rescale(dat.stt$rep2008)
+dat.stt$z.trn1996 <- rescale(dat.stt$vote1996/dat.stt$pop1996)
+dat.stt$z.trn2000 <- rescale(dat.stt$vote2000/dat.stt$pop2000)
+dat.stt$z.trn2004 <- rescale(dat.stt$vote2004/dat.stt$pop2004)
+dat.stt$z.trn2008 <- rescale(dat.stt$vote2008/dat.stt$pop2007)
+dat.stt$stt <- 1:nrow(dat.stt)
+
+### annenberg / pew data for modeling vote choice
+dat.vot <- read.table("../data/votechoice2000-04-08.dat", header=T, sep="\t")
+dat.vot$weight[is.na(dat.vot$weight)] <- 1
+ok <- apply(is.na(dat.vot[1:8]), 1, sum)==0 & 
+  (dat.vot$cit==1 | is.na(dat.vot$cit)) & 
+  (dat.vot$regist=="registered" | is.na(dat.vot$regist))
+dat.vot <- dat.vot[ok,]
+dat.vot$reg <- reg.lkup[dat.vot$stt]
+dat.vot$year <- car::recode(dat.vot$file, "'2000-ann'=2000; '2004-ann'=2004; '2008-pew'=2008")
+dat.vot <- dat.vot[dat.vot$year != 2000,]
+
+### census data from PUMS for population cell sizes
+dat.pop <- read.table("../data/census-pums-pop-2000-04-08.dat", header=T, sep="\t")
+
+n.stt <- length(stt.label)
+n.eth <- length(eth.label)
+n.inc <- length(inc.label)
+n.age <- length(age.label)
+
+data_matrix <- as.data.frame(expand.grid(1:n.stt, 1:n.eth, 1:n.inc, 1:n.age))
+colnames(data_matrix) <- c("stt", "eth", "inc", "age")
+data_matrix$age <- factor(data_matrix$age)
+data_matrix$eth <- factor(data_matrix$eth)
+data_matrix$inc <- factor(data_matrix$inc)
+data_matrix$stt <- factor(data_matrix$stt)
+
+data_matrix$grp <- apply(data_matrix, 1, paste, collapse="_")
+data_matrix$ix <- 1:nrow(data_matrix)
+
+### Fit 2008 election, with data prev states data (2004)
+data_matrix <- mutate(data_matrix,
+                      reg = factor(reg.lkup[stt]),
+                      z_inc = rescale(inc),
+                      z_incstt = dat.stt$z.inc2007[stt],
+                      z_trnprv = dat.stt$z.trn2004[stt],
+                      z_repprv = dat.stt$z.rep2004[stt])
 ```
 
 ## Replicate stan result
@@ -46,33 +116,47 @@ end.time <- Sys.time()
 time.taken <- end.time - start.time
 
 pred <- posterior_epred(mod, newdata = data_matrix)
+
+dat.pop$grp <- apply(dat.pop[, c("stt", "eth", "inc", "age")], 1, paste, collapse="_")
+data_pop_info <- summarize(group_by(dat.pop, grp),
+                           pop2004=sum(wtd2004),
+                           pop2008=sum(wtd2008))
+# data_pop_info$grp <- rownames(data_pop_info)
+data_matrix <- merge(x=data_matrix, y=data_pop_info, by="grp", all.x=T)
+data_matrix <- data_matrix[order(data_matrix$ix),]
+data_matrix$pred = colMeans(pred)
+
+## add up and alter based on actual turnout and vote estimates
+data_matrix$vote2008 <- data_matrix$vote2004 <- data_matrix$turn2008 <- data_matrix$turn2004 <- NA
+for (i in 1:n.stt) {
+  cat(paste(i, "of", n.stt, "\n"))
+  ok <- data_matrix$stt==i
+  data_matrix$vote2008[ok] <- weighted_correction(data_matrix$pred[ok], data_matrix$pop2008[ok]/sum(data_matrix$pop2008[ok]), dat.stt[as.character(i), "rep2008"])$corrected
+}
+
+model_matrix_ori <- list(model = mod, data_matrix = data_matrix, pred = pred)
+# saveRDS(model_matrix_ori, here("data/model_matrix_ori.rds"))
+model_matrix_ori <- readRDS(here("data/model_matrix_ori.rds"))
 ```
 
-```{r}
-reg_formula <- "yes | trials(yes+no) ~ z_inc*z_incstt + z_inc*z_trnprv + (1 + z_inc | reg) + (1 + z_inc | stt) + (1 + z_inc | eth) + (1 | inc) + (1 + z_inc | age) + (1 | reg : eth) + (1 | reg : inc) + (1 | reg : age) + (1 | stt : eth) + (1 | stt : inc) + (1 | stt : age) + (1 | eth : inc) + (1 | eth : age) + (1 | inc : age) + (1 | stt : eth : inc) + (1 | stt : eth : age) + (1 | stt : inc : age) + (1 | eth : inc : age)"
+```{r, fig.width=10, fig.height=10}
+model <- model_matrix_ori$model
+data_matrix <- model_matrix_ori$data_matrix
 
-mod <- brms::brm(as.formula(reg_formula),
-  data = data_matrix, family = binomial(link = "logit"),
-  iter = 500
-)
-```
-
-
-```{r}
 data_matrix %>% 
-  mutate(pred = colMeans(pred)) %>% 
   group_by(stt, inc) %>% 
   summarise(
     pred_all = sum(pred * pop2008) / sum(pop2008), 
     pred_white = sum(pred[eth == 1] * pop2008[eth == 1]) / sum(pop2008[eth == 1])
   ) %>% 
   ungroup() %>% 
-   mutate(
-    state_name = state.names[stt],
-    state_abb = stt.label[stt]
-  ) %>%
-  filter(!state_abb %in% c("AK", "HI", "DC")) %>%
-  left_join(select(dat.stt, state, rep2008), by = c("state_abb" = "state")) %>%
+  left_join(stt_dict, by = c("stt" = "stt")) %>% 
+  #  mutate(
+  #   state_name = state.names[stt],
+  #   state_abb = stt.label[stt]
+  # ) %>%
+  filter(!state_abbr %in% c("AK", "HI", "DC")) %>%
+  left_join(select(dat.stt, state, rep2008), by = c("state_abbr" = "state")) %>%
   mutate(state_name = fct_reorder(state_name, rep2008, .desc = TRUE)) %>% 
   ggplot(aes(group = 1)) +
   geom_line(aes(x = inc, y = pred_all, color = "grey")) + 
@@ -150,12 +234,9 @@ caption <- "Dots are weighted averages from pooled June-Nov Pew surveys; error b
 
 
 stt.inc %>%
-  mutate(
-    state_name = state.names[stt],
-    state_abb = stt.label[stt]
-  ) %>%
-  filter(!state_abb %in% c("AK", "HI", "DC")) %>%
-  left_join(select(dat.stt, state, rep2008), by = c("state_abb" = "state")) %>%
+  left_join(stt_dict, by = c("stt" = "stt")) %>% 
+  filter(!state_abbr %in% c("AK", "HI", "DC")) %>%
+  left_join(select(dat.stt, state, rep2008), by = c("state_abbr" = "state")) %>%
   mutate(state_name = fct_reorder(state_name, rep2008, .desc = TRUE)) %>%
   ggplot(aes(group = 1)) +
   geom_line(aes(x = inc, y = fit1, color = "grey")) +
@@ -179,7 +260,7 @@ stt.inc %>%
     legend.position = "none"
   )
 
-ggsave("2008_stan_fig2_replicate.jpg", width = 10, height = 10, dpi = 300)
+ggsave("../figures/2008_stan_fig2_replicate.jpg", width = 10, height = 10, dpi = 300)
 ```
 
 
