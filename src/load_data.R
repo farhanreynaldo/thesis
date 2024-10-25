@@ -22,7 +22,7 @@ inc.label <- c("$0-20k", "$20-40k", "$40-75k", "$75-150k", "$150k+")
 age.label <- c("18-29", "30-44", "45-64", "65+")
 sex.label <- c("Male", "Female")
 educ.label <- c("< HS", "HS", "Some College", "College", "Post-Grad")
-urban.rural.label <- c("Urban", "Rural")
+metro.label <- c("Rural", "Urban")
 
 # Create state dictionary
 stt_dict <- data.frame(
