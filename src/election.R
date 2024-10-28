@@ -3,7 +3,6 @@ library(tidyverse)
 library(here)
 library(haven)
 library(arm)
-# library(conflicted)
 library(rstanarm)
 library(tidybayes)
 
@@ -48,11 +47,11 @@ process_states_data <- function(states_election_data, states_pop_income_data, ye
 process_election_data <- function(election_data, year) {
   rural_urban_codes <- readxl::read_excel("../data/OEM/ruralurbancodes2013.xls") %>%
     dplyr::rename(county_fips = FIPS) %>%
-    dplyr::mutate(metro = case_when(
-      str_starts(Description, "Nonmetro") ~ 1,
-      str_starts(Description, "Metro") ~ 2,
-      TRUE ~ NA_integer_
-    )) %>%
+    dplyr::mutate(metro = factor(case_when(
+      stringr::str_starts(Description, "Nonmetro") ~ 1,
+      stringr::str_starts(Description, "Metro") ~ 2,
+      TRUE ~ -1
+    ))) %>%
     dplyr::select(county_fips, metro)
 
   election_data %>%
@@ -63,16 +62,6 @@ process_election_data <- function(election_data, year) {
     dplyr::filter(vote %in% c("Republican", "Democratic")) %>%
     dplyr::rename(age_detailed = age) %>%
     dplyr::mutate(
-      # inc = factor(
-      #   case_when(
-      #     faminc %in% 1:2 ~ 1,
-      #     faminc %in% 3:4 ~ 2,
-      #     faminc %in% 5:7 ~ 3,
-      #     faminc %in% 8:11 ~ 4,
-      #     faminc == 12 ~ 5,
-      #     TRUE ~ NA_integer_
-      #   )
-      # ),
       inc = factor(
         case_when(
           faminc %in% c("Less than 10k", "10k - 20k") ~ 1,
@@ -80,7 +69,7 @@ process_election_data <- function(election_data, year) {
           faminc %in% c("40k - 50k", "50k - 60k", "60k - 70k") ~ 3,
           faminc %in% c("70k - 80k", "80k - 100k", "100k - 120k", "120k - 150k") ~ 4,
           faminc == "150k+" ~ 5,
-          TRUE ~ NA_integer_
+          TRUE ~ -1
         )
       ),
       age = factor(
@@ -89,7 +78,7 @@ process_election_data <- function(election_data, year) {
           age_detailed %in% 30:44 ~ 2,
           age_detailed %in% 45:64 ~ 3,
           age_detailed >= 65 ~ 4,
-          TRUE ~ NA_integer_
+          TRUE ~ -1
         )
       ),
       educ = factor(
@@ -99,7 +88,7 @@ process_election_data <- function(election_data, year) {
           educ == 3 ~ 3,
           educ %in% 4:5 ~ 4,
           educ == 6 ~ 5,
-          TRUE ~ NA_integer_
+          TRUE ~ -1
         )
       ),
       eth = factor(
@@ -125,7 +114,7 @@ process_ipums_data <- function(ipums_data, year) {
           between(HHINCOME, 40001, 75000) ~ 3,
           between(HHINCOME, 75001, 150000) ~ 4,
           HHINCOME > 150000 ~ 5,
-          TRUE ~ NA_integer_
+          TRUE ~ -1
         )
       ),
       age_group = factor(
@@ -134,7 +123,7 @@ process_ipums_data <- function(ipums_data, year) {
           between(AGE, 30, 44) ~ 2,
           between(AGE, 45, 64) ~ 3,
           AGE >= 65 ~ 4,
-          TRUE ~ NA_integer_
+          TRUE ~ -1
         )
       ),
       race = factor(
@@ -152,14 +141,14 @@ process_ipums_data <- function(ipums_data, year) {
           EDUC %in% 4:6 ~ 2,
           EDUC %in% 7:10 ~ 4,
           EDUC == 11 ~ 5,
-          TRUE ~ NA_integer_
+          TRUE ~ -1
         )
       ),
       metro = factor(
         case_when(
           METRO == 1 ~ 1,
           METRO %in% c(2, 3, 4) ~ 2,
-          TRUE ~ NA_integer_
+          TRUE ~ -1
         )
       ),
       state = as_factor(STATEFIP),
