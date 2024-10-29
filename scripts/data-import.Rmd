@@ -21,8 +21,10 @@ library(here)
 ```{r}
 # samples <- c("us2008a", "us2012a", "us2016a", "us2020a")
 samples <- c("us2016c")
-variables <- c("SEX", "AGE", "RACE", "EDUC", "HHINCOME", "STATEFIP", "HISPAN",
-               "COUNTYFIP", "METRO")
+variables <- c(
+  "SEX", "AGE", "RACE", "EDUC", "HHINCOME", "STATEFIP", "HISPAN",
+  "COUNTYFIP", "METRO"
+)
 
 usa_extract_definition <- define_extract_micro(
   collection = "usa",
@@ -40,29 +42,30 @@ ipums_data <- read_ipums_micro(ddi)
 ```
 
 ```{r}
-years <- c(2008, 2012, 2016, 2019)
+# Supposed to be 2004 instead of 2005
+years <- c(2005, 2008, 2012, 2016, 2019)
 
 my_vars <- c(
   total_pop = "B01003_001",
   median_income = "B19013_001"
-  )
+)
 
-state_pop_income <- map_dfr(
+state_pop_income <- purrr::map_dfr(
   years,
   ~ get_acs(
-      geography = "state",
-      variables = my_vars,
-      year = .x,
-      survey = "acs1",
-      geometry = FALSE
-      ) %>% mutate(year = .x)
-  ) %>%
-  arrange(variable, NAME)
+    geography = "state",
+    variables = my_vars,
+    year = .x,
+    survey = "acs1",
+    geometry = FALSE
+  ) %>% mutate(year = .x)
+) %>%
+  dplyr::arrange(variable, NAME) %>%
+  dplyr::mutate(year = if_else(year == 2005, 2004, year))
+
 
 state_pop_income %>%
-  select(-moe) %>%
-  pivot_wider(names_from = variable, values_from = estimate) %>%
-  write_csv("../data/state_pop_income.csv")
+  dplyr::select(-moe) %>%
+  tidyr::pivot_wider(names_from = variable, values_from = estimate) %>%
+  readr::write_csv("../data/state_pop_income.csv")
 ```
-
-
