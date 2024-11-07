@@ -48,8 +48,10 @@ process_election_data <- function(election_data, year) {
   rural_urban_codes <- readxl::read_excel("../data/OEM/ruralurbancodes2013.xls") %>%
     dplyr::rename(county_fips = FIPS) %>%
     dplyr::mutate(metro = factor(case_when(
+      Description == "Metro - Counties in metro areas of 1 million population or more" ~ 3,
+      Description %in% c("Metro - Counties in metro areas of 250,000 to 1 million population",
+                         "Metro - Counties in metro areas of fewer than 250,000 population") ~ 2,
       stringr::str_starts(Description, "Nonmetro") ~ 1,
-      stringr::str_starts(Description, "Metro") ~ 2,
       TRUE ~ -1
     ))) %>%
     dplyr::select(county_fips, metro)
@@ -128,10 +130,10 @@ process_ipums_data <- function(ipums_data, year) {
       ),
       race = factor(
         case_when(
-          HISPAN > 0 ~ 2, # Hispanic
+          HISPAN > 0 ~ 2,              # Hispanic
           RACE == 1 & HISPAN == 0 ~ 1, # Non-hispanic White
           RACE == 2 & HISPAN == 0 ~ 3, # Non-hispanic Black
-          TRUE ~ 4 # Other
+          TRUE ~ 4                     # Other
         )
       ),
       educ_group = factor(
@@ -146,8 +148,9 @@ process_ipums_data <- function(ipums_data, year) {
       ),
       metro = factor(
         case_when(
-          METRO == 1 ~ 1,
-          METRO %in% c(2, 3, 4) ~ 2,
+          METRO == 1 ~ 1,          # Rural
+          METRO %in% c(3, 4) ~ 2,  # Suburban
+          METRO == 2 ~ 3,          # Urban
           TRUE ~ -1
         )
       ),
