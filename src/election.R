@@ -47,13 +47,13 @@ process_states_data <- function(states_election_data, states_pop_income_data, ye
 process_election_data <- function(election_data, year) {
   rural_urban_codes <- readxl::read_excel("../data/OEM/ruralurbancodes2013.xls") %>%
     dplyr::rename(county_fips = FIPS) %>%
-    dplyr::mutate(metro = factor(case_when(
+    dplyr::mutate(metro = case_when(
       Description == "Metro - Counties in metro areas of 1 million population or more" ~ 3,
       Description %in% c("Metro - Counties in metro areas of 250,000 to 1 million population",
                          "Metro - Counties in metro areas of fewer than 250,000 population") ~ 2,
       stringr::str_starts(Description, "Nonmetro") ~ 1,
       TRUE ~ -1
-    ))) %>%
+    )) %>%
     dplyr::select(county_fips, metro)
 
   election_data %>%
@@ -100,7 +100,7 @@ process_election_data <- function(election_data, year) {
       stt = factor(state_encoder[state])
     ) %>%
     dplyr::left_join(rural_urban_codes, by = "county_fips") %>%
-    dplyr::mutate(metro = if_else(is.na(metro), -1, metro)) %>%
+    dplyr::mutate(metro = factor(if_else(is.na(metro), -1, metro))) %>%
     dplyr::filter(!is.na(vote))
 }
 
