@@ -1,0 +1,292 @@
+---
+title: "Data visualization"
+author: "Farhan Reynaldo"
+date: "2024-09-26"
+output: html_document
+---
+
+## Load library and data
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+here::i_am("scripts/data-visualization.Rmd")
+
+library(ggtext)
+library(usmap)
+library(sf)
+library(tidyverse)
+library(here)
+
+source(here::here("src/theme.R"))
+source(here::here("src/load_data.R"))
+source(here::here("src/election.R"))
+
+map_data <- usmap::us_map(regions = "states")
+poststrat_data <- read_csv(here("data/census-pums-pop.csv"))
+```
+
+```{r, fig.width = 10, fig.height = 10}
+model_matrix_2012 <- readRDS(here("data/Model/model_matrix_complete_2012.rds"))
+model_matrix_2016 <- readRDS(here("data/Model/model_matrix_complete_2016.rds"))
+model_matrix_2020 <- readRDS(here("data/Model/model_matrix_complete_2020.rds"))
+
+model_matrices <- list(model_matrix_2012, model_matrix_2016, model_matrix_2020)
+years <- c(2012, 2016, 2020)
+
+states_data <- process_states_data(states_election_data, states_pop_income_data, 2020)
+```
+
+## Income-state
+
+```{r, fig.width = 10, fig.height = 10}
+poststrat_by_income_state <- function(model_matrix, year) {
+  year_pop_column <- paste0("wtpop", year)
+  poststrat_data %>%
+  mutate(grp = apply(.[, c("stt", "eth", "inc", "age", "educ", "metro")], 1, paste, collapse = "_")) %>%
+  group_by(grp) %>%
+  summarise(
+    pop = sum(!!sym(year_pop_column), na.rm = TRUE),
+  ) %>%
+  right_join(model_matrix$data_matrix, by = "grp") %>%
+  arrange(ix) %>% 
+  mutate(pred = colMeans(model_matrix$pred)) %>%
+  group_by(year, stt, inc) %>%
+  summarise(
+    pred_all = sum(pred * pop, na.rm = TRUE) / sum(pop, na.rm = TRUE),
+    pred_white = sum(pred[eth == 1] * pop[eth == 1]) / sum(pop[eth == 1]),
+    se_all = sqrt((pred_all * (1 - pred_all)) / sum(n)),
+    se_white = sqrt((pred_white * (1 - pred_white)) / sum(n[eth == 1]))
+  ) %>% 
+  ungroup()
+}
+
+income_state <- map2(model_matrices, years, poststrat_by_income_state)
+
+
+income_state %>% 
+  list_rbind() %>% 
+  left_join(stt_dict, by = c("stt" = "stt")) %>%
+  filter(!state_abbr %in% c("AK", "HI", "DC")) %>%
+  left_join(states_data %>% dplyr::select(state_abbr, rep_votes), by = c("state_abbr" = "state_abbr")) %>% 
+  mutate(state_name = fct_reorder(state_name, rep_votes, .desc = TRUE)) %>%
+  mutate(year = as.factor(year)) %>%
+  ggplot(aes(group = year, color = year)) + 
+  geom_line(aes(x = inc, y = pred_all), linewidth = 1, alpha = 0.8) + 
+  geom_hline(aes(yintercept = 0.5), color = "grey80", linewidth = 0.2) +
+  facet_wrap(~state_name, ncol = 7) + 
+  scale_x_discrete(labels = c("poor", "", "mid", "", "rich")) +
+  scale_color_manual(values = c("#FCBE3A", "#FCA53A", "#FF5C33")) + 
+  scale_y_continuous(labels = scales::label_percent(), breaks = seq(0, 1, 0.5)) + 
+  coord_cartesian(ylim = c(0, 1)) +
+  labs(x = "", y = "", 
+       title = "Republican vote share for each income category across states-year") + 
+  theme_classic() +
+  theme(
+    plot.title = element_text(size = 16, hjust = 0.5, margin = margin(0, 0, 20, 0)),
+    plot.caption = element_text(hjust = 0.5, margin = margin(10, 0, 0, 0)),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    strip.text = element_text(size = 10),
+    legend.position = "top"
+  )
+
+ggsave(here("figures/income-state.png"), width = 10, height = 10, dpi = 300)
+```
+
+## Income-year
+```{r, fig.width = 10, fig.height = 10}
+poststrat_by_income_year <- function(model_matrix, year) {
+  year_pop_column <- paste0("wtpop", year)
+  poststrat_data %>%
+  mutate(grp = apply(.[, c("stt", "eth", "inc", "age", "educ", "metro")], 1, paste, collapse = "_")) %>%
+  group_by(grp) %>%
+  summarise(
+    pop = sum(!!sym(year_pop_column), na.rm = TRUE),
+  ) %>%
+  right_join(model_matrix$data_matrix, by = "grp") %>%
+  arrange(ix) %>% 
+  mutate(pred = colMeans(model_matrix$pred)) %>%
+  group_by(year, inc) %>%
+  summarise(
+    pred_all = sum(pred * pop, na.rm = TRUE) / sum(pop, na.rm = TRUE)
+  ) %>% 
+  ungroup()
+}
+
+income_year <- map2(model_matrices, years, poststrat_by_income_year)
+
+income_year %>% 
+  list_rbind() %>% 
+  mutate(year = as.factor(year), 
+         pred_rep = pred_all, 
+         pred_dem = 1 - pred_rep, 
+         diff = pred_dem - pred_rep) %>% 
+  ggplot(aes(x = inc, y = pred_rep, color = year, group = year)) + 
+  geom_line(linewidth = 1, alpha = 0.8) + 
+  geom_point() + 
+  # labs(x = "", y = "Dem - Rep") + 
+  # scale_x_discrete(labels = c("poor", "", "mid", "", "rich")) +
+  scale_y_continuous(labels = scales::label_percent())
+```
+
+## Educ-state
+
+```{r, fig.width = 10, fig.height = 10}
+poststrat_by_educ_state <- function(model_matrix, year) {
+  year_pop_column <- paste0("wtpop", year)
+  poststrat_data %>%
+  mutate(grp = apply(.[, c("stt", "eth", "inc", "age", "educ", "metro")], 1, paste, collapse = "_")) %>%
+  group_by(grp) %>%
+  summarise(
+    pop = sum(!!sym(year_pop_column), na.rm = TRUE),
+  ) %>%
+  right_join(model_matrix$data_matrix, by = "grp") %>%
+  arrange(ix) %>% 
+  mutate(pred = colMeans(model_matrix$pred)) %>%
+  group_by(year, stt, educ) %>%
+  summarise(
+    pred_all = sum(pred * pop, na.rm = TRUE) / sum(pop, na.rm = TRUE),
+    pred_white = sum(pred[eth == 1] * pop[eth == 1]) / sum(pop[eth == 1]),
+    se_all = sqrt((pred_all * (1 - pred_all)) / sum(n)),
+    se_white = sqrt((pred_white * (1 - pred_white)) / sum(n[eth == 1]))
+  ) %>% 
+  ungroup()
+}
+
+educ_state <- map2(model_matrices, years, poststrat_by_educ_state)
+
+educ_state %>% 
+  list_rbind() %>% 
+  left_join(stt_dict, by = c("stt" = "stt")) %>%
+  filter(!state_abbr %in% c("AK", "HI", "DC")) %>%
+  left_join(states_data %>% dplyr::select(state_abbr, rep_votes), by = c("state_abbr" = "state_abbr")) %>% 
+  mutate(state_name = fct_reorder(state_name, rep_votes, .desc = TRUE)) %>%
+  mutate(year = as.factor(year)) %>%
+  ggplot(aes(group = year, color = year)) + 
+  geom_line(aes(x = educ, y = pred_all), linewidth = 1, alpha = 0.8) + 
+  geom_hline(aes(yintercept = 0.5), color = "grey80", linewidth = 0.2) +
+  facet_wrap(~state_name, ncol = 7) + 
+  scale_color_manual(values = c("#FCBE3A", "#FCA53A", "#FF5C33")) + 
+  scale_y_continuous(labels = scales::label_percent(), breaks = seq(0, 1, 0.5)) + 
+  coord_cartesian(ylim = c(0, 1)) +
+  labs(x = "", y = "", 
+       title = "Republican vote share for each education category across states-year") + 
+  theme_classic() +
+  theme(
+    plot.title = element_text(size = 16, hjust = 0.5, margin = margin(0, 0, 20, 0)),
+    plot.caption = element_text(hjust = 0.5, margin = margin(10, 0, 0, 0)),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    strip.text = element_text(size = 10),
+    legend.position = "top"
+  )
+
+ggsave(here("figures/educ-state.png"), width = 10, height = 10, dpi = 300)
+```
+
+## Metro-state
+
+What should we do in poststratification step if one of the subgroups has 0 population? In this case, I want to plot how urban and rural differs in each state across years. However, states, such as Rhode Island and New Jersey does not have rural population (based on the IPUMS data). Is it acceptable to use raw prediction from the model without poststratification? 
+
+```{r, fig.width = 10, fig.height = 10}
+poststrat_by_metro_state <- function(model_matrix, year) {
+  year_pop_column <- paste0("wtpop", year)
+  poststrat_data %>%
+  mutate(grp = apply(.[, c("stt", "eth", "inc", "age", "educ", "metro")], 1, paste, collapse = "_")) %>%
+  group_by(grp) %>%
+  summarise(
+    pop = sum(!!sym(year_pop_column), na.rm = TRUE),
+  ) %>%
+  right_join(model_matrix$data_matrix, by = "grp") %>%
+  arrange(ix) %>% 
+  mutate(pred = colMeans(model_matrix$pred)) %>%
+  group_by(year, stt, metro) %>%
+  summarise(
+    pred_all = sum(pred * pop, na.rm = TRUE) / sum(pop, na.rm = TRUE),
+    pred_white = sum(pred[eth == 1] * pop[eth == 1]) / sum(pop[eth == 1]),
+    se_all = sqrt((pred_all * (1 - pred_all)) / sum(n)),
+    se_white = sqrt((pred_white * (1 - pred_white)) / sum(n[eth == 1]))
+  ) %>% 
+  ungroup()
+}
+
+metro_state <- map2(model_matrices, years, poststrat_by_metro_state)
+
+metro_state %>% 
+  list_rbind() %>% 
+  left_join(stt_dict, by = c("stt" = "stt")) %>%
+  filter(!state_abbr %in% c("AK", "HI", "DC")) %>%
+  left_join(states_data %>% dplyr::select(state_abbr, rep_votes), by = c("state_abbr" = "state_abbr")) %>% 
+  mutate(state_name = fct_reorder(state_name, rep_votes, .desc = TRUE)) %>%
+  mutate(year = as.factor(year)) %>%
+  ggplot(aes(group = year, color = year)) + 
+  geom_line(aes(x = metro, y = pred_all), linewidth = 0.7, alpha = 0.8) + 
+  geom_point(aes(x = metro, y = pred_all), size = 0.7, alpha = 0.8) + 
+  geom_hline(aes(yintercept = 0.5), color = "grey80", linewidth = 0.2) +
+  facet_wrap(~state_name, ncol = 7) + 
+  scale_x_discrete(labels = c("rural", "urban")) +
+  scale_color_manual(values = c("#FCBE3A", "#FCA53A", "#FF5C33")) + 
+  scale_y_continuous(labels = scales::label_percent(), breaks = seq(0, 1, 0.5)) + 
+  coord_cartesian(ylim = c(0, 1)) +
+  labs(x = "", y = "", 
+       title = "Republican vote share for each rural-urban category across states-year") + 
+  theme_classic() +
+  theme(
+    plot.title = element_text(size = 16, hjust = 0.5, margin = margin(0, 0, 20, 0)),
+    plot.caption = element_text(hjust = 0.5, margin = margin(10, 0, 0, 0)),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    strip.text = element_text(size = 10),
+    legend.position = "top"
+  )
+```
+
+
+```{r}
+poststrat_data %>% 
+  mutate(state_name = stt.label[stt]) %>% 
+  group_by(state_name, metro) %>% 
+  summarise(
+    pop2012 = sum(wtpop2012, na.rm = TRUE),
+    pop2016 = sum(wtpop2016, na.rm = TRUE),
+    pop2020 = sum(wtpop2020, na.rm = TRUE),
+    .groups = "drop"
+  ) %>% 
+  arrange(pop2012)
+```
+
+```{r}
+ddi <- read_ipums_ddi(here("data/IPUMS/usa_00008.xml"))
+ipums_data <- read_ipums_micro(ddi)
+```
+
+```{r}
+ipums_data %>% 
+  filter(YEAR == 2016) %>% 
+  mutate(state_name = as_factor(STATEFIP), 
+         metro_name = as_factor(METRO)) %>% 
+  filter(state_name %in% c("New Jersey", "Rhode Island", "Wyoming")) %>% 
+  group_by(state_name, metro_name) %>% 
+  summarise(pop = n())
+```
+
+```{r}
+year_pop_column <- paste0("wtpop", 2012)
+poststrat_data %>%
+  mutate(grp = apply(.[, c("stt", "eth", "inc", "age", "educ", "metro")], 1, paste, collapse = "_")) %>%
+  group_by(grp) %>%
+  summarise(
+    pop = sum(!!sym(year_pop_column), na.rm = TRUE),
+  ) %>%
+  right_join(model_matrix_2012$data_matrix, by = "grp") %>%
+  arrange(ix) %>% 
+  mutate(pred = colMeans(model_matrix_2012$pred)) %>% 
+  group_by(year, stt, metro) %>%
+  summarise(
+    pred_all = sum(pred * pop, na.rm = TRUE) / sum(pop, na.rm = TRUE),
+    pred_white = sum(pred[eth == 1] * pop[eth == 1]) / sum(pop[eth == 1]),
+    se_all = sqrt((pred_all * (1 - pred_all)) / sum(n)),
+    se_white = sqrt((pred_white * (1 - pred_white)) / sum(n[eth == 1]))
+  ) %>% 
+  ungroup()
+```

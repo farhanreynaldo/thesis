@@ -1,0 +1,106 @@
+---
+title: "Data exploration"
+author: "Farhan Reynaldo"
+date: "2024-09-26"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+here::i_am("scripts/data-exploration-2.Rmd")
+```
+
+## Load library and data
+
+```{r}
+library(tidyverse)
+library(arrow)
+
+source(here("src/election.R"))
+source(here("src/theme.R"))
+
+election_all <- read_feather(here("data/CCES Cumulative/cumulative_2006-2023.feather"))
+```
+
+```{r}
+# Define constants
+reg.lkup <- c(3, 4, 4, 3, 4, 4, 1, 1, 5, 3, 3, 4, 4, 2, 2, 2, 2, 3, 3, 1, 1, 1, 2, 2, 3, 2, 4, 2, 4, 1, 1, 4, 1, 3, 2, 2, 3, 4, 1, 1, 3, 2, 3, 3, 4, 1, 3, 4, 1, 2, 4)
+stt.label <- c(state.name[1:8], "DC", state.name[9:50])
+stt.abb.label <- c(state.abb[1:8], "DC", state.abb[9:50])
+eth.label <- c("White", "Black", "Hispanic", "Other")
+inc.label <- c("$0-20k", "$20-40k", "$40-75k", "$75-150k", "$150k+")
+age.label <- c("18-29", "30-44", "45-64", "65+")
+sex.label <- c("Male", "Female")
+educ.label <- c("< HS", "HS", "Some College", "College", "Post-Grad")
+metro.label <- c("Rural", "Suburban", "Urban")
+
+# Create state dictionary
+stt_dict <- data.frame(
+  state_name = stt.label, state_abbr = stt.abb.label, stt = factor(1:51)
+)
+```
+
+## 2008 Election
+
+```{r}
+years <- seq(2012, 2020, 4)
+elections <- purrr::map(years, ~process_election_data(election_all, year = .x)) %>% 
+  purrr::list_rbind() %>% 
+  mutate(across(is.labelled, ~as_factor(.)))
+```
+
+## Distribution
+
+```{r}
+create_mapper <- function(label) {
+  setNames(label, 1:length(label))
+}
+
+metro_mapper <- create_mapper(metro.label)
+
+mutate(elections, metro_str = metro_mapper[as.character(metro)]) %>% 
+  dplyr::select(metro, metro_str) %>% 
+  distinct(metro, metro_str)
+```
+
+
+```{r}
+cols <- c("eth", "inc", "age", "educ", "metro")
+
+plot_variable <- function(var) {
+  elections %>%
+    mutate(col = !!sym(var)) %>%
+    ggplot(aes(y = col)) +
+    geom_bar(aes(x = after_stat(count)/sum(after_stat(count)))) +
+    theme_benedict() +
+    scale_x_continuous(labels = scales::label_percent()) +
+    labs(title = var, x = "", y = "") +
+    theme(axis.text.y = element_text(size = 10))
+}
+
+purrr::map(cols, plot_variable)
+```
+
+
+```{r}
+poststrat_data <- read_csv(here("data/census-pums-pop.csv"))
+
+cols <- c("eth", "inc", "age", "educ", "metro")
+
+plot_dist_pop <- function(var) {
+  poststrat_data %>% 
+    mutate(col = as.factor(!!sym(var))) %>% 
+    group_by(col) %>%
+    summarise(across(starts_with("wtpop"), sum, na.rm = TRUE), .groups = "drop") %>%
+    mutate(across(starts_with("wtpop"), ~.x/sum(.x))) %>% 
+    ggplot(aes(x = wtpop2016, y = col)) +
+    geom_col() +
+    theme_benedict() +
+    scale_x_continuous(labels = scales::label_percent()) +
+    labs(title = var, x = "", y = "") +
+    theme(axis.text.y = element_text(size = 10))
+}
+
+purrr::map(cols, plot_dist_pop)
+```
+
