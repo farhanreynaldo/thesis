@@ -49,7 +49,7 @@ inc.label <- c("$0-20k", "$20-40k", "$40-75k", "$75-150k", "$150k+")
 age.label <- c("18-29", "30-44", "45-64", "65+")
 sex.label <- c("Male", "Female")
 educ.label <- c("< HS", "HS", "Some College", "College", "Post-Grad")
-metro.label <- c("Rural", "Urban")
+metro.label <- c("Rural", "Suburban", "Urban")
 
 years <- c(2008, 2012, 2016, 2020)
 dfs <- map(years, ~ process_ipums_data(ipums_data, year = .x) %>% mutate(year = .x))
@@ -66,7 +66,7 @@ expand.grid(
 ) %>%
   left_join(list_rbind(dfs), by = c("sex", "age", "eth", "educ", "inc", "metro", "stt", "year")) %>%
   mutate(pop = replace_na(pop, 0),
-         wtpop = replace_na(wtpop)) %>% 
+         wtpop = replace_na(wtpop, 0)) %>% 
   pivot_wider(
     names_from = year, 
     values_from = c(pop, wtpop), 

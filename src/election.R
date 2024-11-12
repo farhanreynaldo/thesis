@@ -100,6 +100,7 @@ process_election_data <- function(election_data, year) {
       stt = factor(state_encoder[state])
     ) %>%
     dplyr::left_join(rural_urban_codes, by = "county_fips") %>%
+    dplyr::mutate(metro = if_else(is.na(metro), -1, metro)) %>%
     dplyr::filter(!is.na(vote))
 }
 
