@@ -1,4 +1,5 @@
 library(ggplot2)
+library(ggtext)
 
 theme_benedict <- function(base_size = 12,
                            dark_text = "#1A242F") {
