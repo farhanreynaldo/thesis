@@ -15,11 +15,19 @@ here::i_am("scripts/data-exploration-2.Rmd")
 ```{r}
 library(tidyverse)
 library(arrow)
+library(srvyr)
+library(here)
 
 source(here("src/election.R"))
 source(here("src/theme.R"))
 
 election_all <- read_feather(here("data/CCES Cumulative/cumulative_2006-2023.feather"))
+
+poststrat_data <- read_csv(here("data/census-pums-pop.csv")) %>% 
+  dplyr::select(!starts_with("pop")) %>% 
+  mutate(across(starts_with("wtpop"), ~replace_na(.x, 0))) %>% 
+  pivot_longer(cols = starts_with("wtpop"), names_to = "year", values_to = "wtpop", 
+               names_prefix = "wtpop")
 ```
 
 ```{r}
@@ -49,58 +57,362 @@ elections <- purrr::map(years, ~process_election_data(election_all, year = .x)) 
   mutate(across(is.labelled, ~as_factor(.)))
 ```
 
+## Function 
+
+```{r}
+get_label <- function(col_name) {
+  label <- switch(col_name,
+    eth = eth.label,
+    inc = inc.label,
+    age = age.label,
+    educ = educ.label,
+    metro = metro.label,
+    stt = stt.label
+  )
+  return(label)
+}
+
+relevel_label <- function(col_name) {
+  col_name <- deparse(substitute(col_name))
+  get_label(col_name)
+}
+
+map_label <- function(col) {
+  col_name <- deparse(substitute(col))
+  label <- get_label(col_name)
+  label_mapper <- setNames(label, 1:length(label))
+  result <- unname(label_mapper[as.character(col)])
+  return(result)
+}
+
+create_survey_means <- function(data, ..., year = NULL) {
+  group_vars <- enquos(...)
+  
+  survey_data <- data %>% 
+    as_survey(weights = weight)
+
+  if (!is.null(year)) {
+    survey_data <- survey_data %>% 
+      filter(year == !!year)
+  }
+
+  survey_data %>% 
+    group_by(year, !!!group_vars) %>% 
+    summarise(vote = survey_mean(vote == "Republican"), .groups = "drop") %>% 
+    mutate(across(is.factor, map_label, .names = "{.col}_str"),
+           year = factor(year, ordered = TRUE))
+}
+```
+
+
 ## Distribution
 
 ```{r}
-create_mapper <- function(label) {
-  setNames(label, 1:length(label))
-}
+col_names <- c("eth", "inc", "age", "educ", "metro")
 
-metro_mapper <- create_mapper(metro.label)
-
-mutate(elections, metro_str = metro_mapper[as.character(metro)]) %>% 
-  dplyr::select(metro, metro_str) %>% 
-  distinct(metro, metro_str)
-```
-
-
-```{r}
-cols <- c("eth", "inc", "age", "educ", "metro")
-
-plot_variable <- function(var) {
+plot_variable <- function(col_name) {
   elections %>%
-    mutate(col = !!sym(var)) %>%
-    ggplot(aes(y = col)) +
-    geom_bar(aes(x = after_stat(count)/sum(after_stat(count)))) +
+    mutate(col = map_label(!!ensym(col_name)),
+           year = factor(year, ordered = TRUE)) %>%
+    group_by(year, col) %>%
+    summarise(count = n(), .groups = "drop") %>% 
+    group_by(year) %>%
+    mutate(prop = count/sum(count)) %>%
+    ungroup() %>%
+    ggplot(aes(x = prop, y = col, fill = year)) +
+    geom_col(position = "dodge") +
     theme_benedict() +
+    scale_fill_manual(values = c("#fdbb84", "#fc8d59", "#e34a33")) +
     scale_x_continuous(labels = scales::label_percent()) +
-    labs(title = var, x = "", y = "") +
+    labs(title = col_name, x = "", y = "") +
     theme(axis.text.y = element_text(size = 10))
 }
 
-purrr::map(cols, plot_variable)
+purrr::map(col_names, plot_variable)
 ```
 
 
 ```{r}
-poststrat_data <- read_csv(here("data/census-pums-pop.csv"))
-
 cols <- c("eth", "inc", "age", "educ", "metro")
 
-plot_dist_pop <- function(var) {
+plot_dist_pop <- function(col_name) {
   poststrat_data %>% 
-    mutate(col = as.factor(!!sym(var))) %>% 
-    group_by(col) %>%
-    summarise(across(starts_with("wtpop"), sum, na.rm = TRUE), .groups = "drop") %>%
-    mutate(across(starts_with("wtpop"), ~.x/sum(.x))) %>% 
-    ggplot(aes(x = wtpop2016, y = col)) +
-    geom_col() +
+    mutate(col = map_label(!!ensym(col_name)),
+           year = factor(year, ordered = TRUE)) %>%
+    group_by(year, col) %>% 
+    summarise(wtpop = sum(wtpop), .groups = "drop") %>%
+    group_by(year) %>%
+    mutate(prop = wtpop/sum(wtpop)) %>%
+    ungroup() %>%
+    ggplot(aes(x = prop, y = col, fill = year)) +
+    geom_col(position = "dodge") +
     theme_benedict() +
+    scale_fill_manual(values = c("#fdbb84", "#fc8d59", "#e34a33", "#b30000")) +
     scale_x_continuous(labels = scales::label_percent()) +
-    labs(title = var, x = "", y = "") +
+    labs(title = col_name, x = "", y = "") +
     theme(axis.text.y = element_text(size = 10))
 }
 
 purrr::map(cols, plot_dist_pop)
+```
+
+
+## state-income
+
+```{r, fig.width=12, fig.height=12}
+elections %>%
+  filter(year == 2012) %>%
+  as_survey(weights = weight) %>%
+  group_by(stt, inc) %>%
+  summarise(vote = survey_mean(vote == "Republican"), .groups = "drop") %>% 
+  mutate(across(is.factor, map_label)) %>% 
+  drop_na(inc) %>% 
+  filter(!stt %in% c("Alaska", "Hawaii", "DC")) %>%
+  ggplot(aes(x = inc, y = vote, group = stt)) +
+  geom_pointrange(aes(ymin = vote - vote_se, ymax = vote + vote_se)) + 
+  geom_hline(aes(yintercept = 0.5), color = "grey80", linewidth = 0.2) +
+  facet_wrap(~stt) + 
+  scale_x_discrete(labels = 1:length(inc.label)) +
+  scale_y_continuous(labels = scales::label_percent(), breaks = seq(0, 1, 0.25)) + 
+  coord_cartesian(ylim = c(0, 1)) +
+  theme_classic() 
+```
+
+## educ-state
+
+```{r, fig.width=12, fig.height=12}
+elections %>%
+  filter(year == 2012) %>%
+  as_survey(weights = weight) %>%
+  group_by(stt, educ) %>%
+  summarise(vote = survey_mean(vote == "Republican"), .groups = "drop") %>% 
+  mutate(across(is.factor, map_label)) %>% 
+  drop_na(educ) %>% 
+  filter(!stt %in% c("Alaska", "Hawaii", "DC")) %>%
+  ggplot(aes(x = educ, y = vote, group = stt)) +
+  geom_pointrange(aes(ymin = vote - vote_se, ymax = vote + vote_se)) + 
+  geom_hline(aes(yintercept = 0.5), color = "grey80", linewidth = 0.2) +
+  facet_wrap(~stt) + 
+  scale_x_discrete(labels = 1:length(educ.label)) +
+  scale_y_continuous(labels = scales::label_percent(), breaks = seq(0, 1, 0.25)) + 
+  coord_cartesian(ylim = c(0, 1)) +
+  theme_classic() 
+```
+
+## metro-state
+
+```{r, fig.width=12, fig.height=12}
+elections %>%
+  filter(year == 2012) %>%
+  as_survey(weights = weight) %>%
+  group_by(stt, metro) %>%
+  summarise(vote = survey_mean(vote == "Republican"), .groups = "drop") %>% 
+  mutate(across(is.factor, map_label)) %>% 
+  drop_na(metro) %>% 
+  filter(!stt %in% c("Alaska", "Hawaii", "DC")) %>%
+  ggplot(aes(x = metro, y = vote, group = stt)) +
+  geom_pointrange(aes(ymin = vote - vote_se, ymax = vote + vote_se)) + 
+  geom_hline(aes(yintercept = 0.5), color = "grey80", linewidth = 0.2) +
+  facet_wrap(~stt) + 
+  scale_x_discrete(labels = 1:length(metro.label)) +
+  scale_y_continuous(labels = scales::label_percent(), breaks = seq(0, 1, 0.25)) + 
+  coord_cartesian(ylim = c(0, 1)) +
+  theme_classic() 
+```
+
+## age-state
+
+```{r, fig.width=12, fig.height=12}
+elections %>%
+  filter(year == 2012) %>%
+  as_survey(weights = weight) %>%
+  group_by(stt, age) %>%
+  summarise(vote = survey_mean(vote == "Republican"), .groups = "drop") %>% 
+  mutate(across(is.factor, map_label)) %>% 
+  drop_na(age) %>% 
+  filter(!stt %in% c("Alaska", "Hawaii", "DC")) %>%
+  ggplot(aes(x = age, y = vote, group = stt)) +
+  geom_pointrange(aes(ymin = vote - vote_se, ymax = vote + vote_se)) + 
+  geom_hline(aes(yintercept = 0.5), color = "grey80", linewidth = 0.2) +
+  facet_wrap(~stt) + 
+  scale_x_discrete(labels = 1:length(age.label)) +
+  scale_y_continuous(labels = scales::label_percent(), breaks = seq(0, 1, 0.25)) + 
+  coord_cartesian(ylim = c(0, 1)) +
+  theme_classic() 
+```
+
+## income-educ
+
+```{r}
+elections %>%
+  filter(year == 2020) %>%
+  as_survey(weights = weight) %>%
+  group_by(inc, educ) %>%
+  summarise(vote = survey_mean(vote == "Republican"), .groups = "drop") %>% 
+  mutate(across(is.factor, map_label)) %>% 
+  ggplot(aes(x = inc, y = vote)) +
+  geom_pointrange(aes(ymin = vote - vote_se, ymax = vote + vote_se)) + 
+  geom_hline(aes(yintercept = 0.5), color = "grey80", linewidth = 0.2) +
+  facet_wrap(~educ) +
+  scale_x_discrete(labels = 1:length(inc.label)) +
+  scale_y_continuous(labels = scales::label_percent(), breaks = seq(0, 1, 0.25)) + 
+  coord_cartesian(ylim = c(0, 1)) +
+  theme_classic() 
+```
+
+
+```{r}
+elections %>%
+  filter(year == 2020) %>%
+  as_survey(weights = weight) %>%
+  group_by(inc, educ) %>%
+  summarise(vote = survey_mean(vote == "Republican"), .groups = "drop") %>% 
+  mutate(across(is.factor, map_label)) %>% 
+  ggplot(aes(x = educ, y = vote)) +
+  geom_pointrange(aes(ymin = vote - vote_se, ymax = vote + vote_se)) + 
+  geom_hline(aes(yintercept = 0.5), color = "grey80", linewidth = 0.2) +
+  facet_wrap(~inc) +
+  scale_x_discrete(labels = 1:length(educ.label)) +
+  scale_y_continuous(labels = scales::label_percent(), breaks = seq(0, 1, 0.25)) + 
+  coord_cartesian(ylim = c(0, 1)) +
+  theme_classic() 
+```
+
+## income-metro
+
+```{r}
+elections %>% 
+  create_survey_means(metro, inc, year = 2016) %>% 
+  ggplot(aes(x = inc, y = vote)) +
+  geom_pointrange(aes(ymin = vote - vote_se, ymax = vote + vote_se)) + 
+  geom_hline(aes(yintercept = 0.5), color = "grey80", linewidth = 0.2) +
+  facet_wrap(~metro) +
+  scale_y_continuous(labels = scales::label_percent(), breaks = seq(0, 1, 0.25)) + 
+  coord_cartesian(ylim = c(0, 1)) +
+  theme_classic() 
+```
+
+```{r}
+elections %>% 
+  create_survey_means(metro, inc, year = 2016) %>% 
+  mutate(across(contains("str"), ~fct_relevel(.x, relevel_label(.x)))) %>% 
+  ggplot(aes(x = metro_str, y = vote)) +
+  geom_pointrange(aes(ymin = vote - vote_se, ymax = vote + vote_se)) + 
+  geom_hline(aes(yintercept = 0.5), color = "grey80", linewidth = 0.2) +
+  facet_wrap(~inc_str) +
+  scale_y_continuous(labels = scales::label_percent(), breaks = seq(0, 1, 0.25)) + 
+  coord_cartesian(ylim = c(0, 1)) +
+  theme_classic() 
+```
+
+```{r, fig.width=8, fig.height=5}
+elections %>%
+  create_survey_means(metro, inc) %>%
+  mutate(across(contains("str"), ~fct_relevel(.x, relevel_label(.x)))) %>% 
+  ggplot(aes(x = inc_str, y = vote, color = year, group = year)) +
+  geom_pointrange(aes(ymin = vote - vote_se, ymax = vote + vote_se), size = 0.2, 
+                  alpha = 0.7) + 
+  geom_line() + 
+  geom_hline(aes(yintercept = 0.5), color = "grey80", linewidth = 0.2) +
+  facet_wrap(~metro_str) +
+  scale_color_manual(values = c("#fdbb84", "#fc8d59", "#e34a33")) +
+  scale_y_continuous(labels = scales::label_percent(), breaks = seq(0, 1, 0.25)) + 
+  coord_cartesian(ylim = c(0, 1)) +
+  theme_classic() 
+```
+
+## metro-educ
+
+```{r, fig.width=8, fig.height=5}
+elections %>%
+  create_survey_means(metro, educ, year = 2016) %>%
+  mutate(across(contains("str"), ~fct_relevel(.x, relevel_label(.x)))) %>% 
+  ggplot(aes(x = educ_str, y = vote)) +
+  geom_pointrange(aes(ymin = vote - vote_se, ymax = vote + vote_se)) + 
+  geom_hline(aes(yintercept = 0.5), color = "grey80", linewidth = 0.2) +
+  facet_wrap(~metro_str) +
+  scale_y_continuous(labels = scales::label_percent(), breaks = seq(0, 1, 0.25)) + 
+  coord_cartesian(ylim = c(0, 1)) +
+  theme_classic() 
+```
+
+```{r}
+elections %>%
+  create_survey_means(metro, educ) %>% 
+  mutate(across(contains("str"), ~fct_relevel(.x, relevel_label(.x)))) %>% 
+  filter(metro != -1) %>% 
+  ggplot(aes(x = metro_str, y = vote, color = year, group = year)) +
+  geom_pointrange(aes(ymin = vote - vote_se, ymax = vote + vote_se), size = 0.2, 
+                  alpha = 0.7) + 
+  geom_line() + 
+  geom_hline(aes(yintercept = 0.5), color = "grey80", linewidth = 0.2) +
+  facet_wrap(~educ_str) +
+  scale_color_manual(values = c("#fdbb84", "#fc8d59", "#e34a33")) +
+  scale_y_continuous(labels = scales::label_percent(), breaks = seq(0, 1, 0.25)) + 
+  coord_cartesian(ylim = c(0, 1)) +
+  theme_classic() 
+```
+
+## eth-educ
+
+```{r, fig.width=8, fig.height=5}
+elections %>%
+  create_survey_means(eth, educ, year = 2016) %>% 
+  mutate(across(contains("str"), ~fct_relevel(.x, relevel_label(.x)))) %>% 
+  pull(educ_str)
+  ggplot(aes(x = educ_str, y = vote)) +
+  geom_pointrange(aes(ymin = vote - vote_se, ymax = vote + vote_se)) + 
+  geom_hline(aes(yintercept = 0.5), color = "grey80", linewidth = 0.2) +
+  facet_wrap(~eth_str) +
+  scale_y_continuous(labels = scales::label_percent(), breaks = seq(0, 1, 0.25)) + 
+  coord_cartesian(ylim = c(0, 1)) +
+  theme_classic() 
+```
+
+```{r}
+elections %>%
+  create_survey_means(metro, educ) %>% 
+  mutate(across(contains("str"), ~fct_relevel(.x, relevel_label(.x)))) %>% 
+  filter(metro != -1) %>% 
+  ggplot(aes(x = metro_str, y = vote, color = year, group = year)) +
+  geom_pointrange(aes(ymin = vote - vote_se, ymax = vote + vote_se), size = 0.2, 
+                  alpha = 0.7) + 
+  geom_line() + 
+  geom_hline(aes(yintercept = 0.5), color = "grey80", linewidth = 0.2) +
+  facet_wrap(~educ_str) +
+  scale_color_manual(values = c("#fdbb84", "#fc8d59", "#e34a33")) +
+  scale_y_continuous(labels = scales::label_percent(), breaks = seq(0, 1, 0.25)) + 
+  coord_cartesian(ylim = c(0, 1)) +
+  theme_classic() 
+```
+
+
+## age-educ
+
+```{r, fig.width=8, fig.height=5}
+elections %>%
+  create_survey_means(age, educ) %>% 
+  mutate(across(contains("str"), ~fct_relevel(.x, relevel_label(.x)))) %>% 
+  ggplot(aes(x = age_str, y = vote, color = year, group = year)) +
+  geom_pointrange(aes(ymin = vote - vote_se, ymax = vote + vote_se), size = 0.2, 
+                  alpha = 0.7) + 
+  geom_line() + 
+  geom_hline(aes(yintercept = 0.5), color = "grey80", linewidth = 0.2) +
+  facet_wrap(~educ_str) +
+  scale_color_manual(values = c("#fdbb84", "#fc8d59", "#e34a33")) +
+  scale_y_continuous(labels = scales::label_percent(), breaks = seq(0, 1, 0.25)) + 
+  coord_cartesian(ylim = c(0, 1)) +
+  theme_classic() 
+```
+
+```{r}
+col_names <- c("eth", "inc", "age", "educ", "metro", "stt")
+
+# find each combinations of col_names
+combinations <- expand.grid(col_names, col_names) %>% 
+  filter(Var1 != Var2) %>% 
+  arrange(Var1, Var2)
+
+combinations
 ```
 
