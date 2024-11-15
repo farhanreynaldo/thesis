@@ -7,16 +7,20 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-here::i_am("scripts/data-modeling.Rmd")
+here::i_am("scripts/data-modeling-2.Rmd")
+
+ssh_private_key_file <- "~/.ssh/id_rsa"
+```
 
 
+```{r}
 library(rstanarm)
 library(tidybayes)
-library(ggtext)
-library(usmap)
-library(sf)
 library(tidyverse)
 library(here)
+library(analogsea)
+library(future)
+library(listenv)
 
 source(here::here("src/election.R"))
 source(here::here("src/helpers.R"))
@@ -26,6 +30,8 @@ source(here::here("src/load_data.R"))
 map_data <- usmap::us_map(regions = "states")
 poststrat_data <- read_csv(here("data/census-pums-pop-2016.csv")) %>%
   mutate(pop2008 = wtpop)
+
+# options(mc.cores = parallelly::availableCores())
 ```
 
 
@@ -83,8 +89,230 @@ if (run == TRUE) {
 }
 ```
 
+
 ```{r}
-launch_shinystan(model, ppd = F)
+# fit_model <- function(year, formula_level = 1, run = FALSE) {
+#   if (run == FALSE) {
+#     return(NULL)
+#   }
+#   states_data <- process_states_data(states_election_data, states_pop_income_data, year)
+#   election_processed <- process_election_data(election_all, year)
+#   covariates <- c("stt", "eth", "inc", "age", "educ", "metro")
+#   
+#   data_matrix <- expand.grid(
+#     stt = factor(1:length(stt.label)),
+#     eth = factor(1:length(eth.label)),
+#     inc = factor(1:length(inc.label)),
+#     age = factor(1:length(age.label)),
+#     educ = factor(1:length(educ.label)),
+#     metro = factor(1:length(metro.label))
+#   ) %>%
+#     mutate(
+#       grp = apply(., 1, paste, collapse = "_"),
+#       ix = row_number()
+#     ) %>%
+#     left_join(states_data, by = c("stt" = "stt")) %>%
+#     mutate(
+#       reg = factor(reg.lkup[as.numeric(stt)]),
+#       z_inc = arm::rescale(as.numeric(inc))
+#     )
+#   
+#   election_subset <- election_processed %>%
+#     mutate(
+#       # Vote for Republican
+#       vote = ifelse(vote == "Republican", 1, 0),
+#       grp = apply(.[, covariates], 1, paste, collapse = "_"),
+#       ones = 1
+#     )
+#   
+#   data_matrix <- calc_and_add_weighted_results(data_matrix, election_subset)
+#   
+#   if(formula_level == 1) {
+#     formula <- "cbind(yes, no) ~ z_incstt + z_trnprv + reg + stt + eth + educ + age + metro + inc"
+#   } else if (formula_level == 2) {
+#     formula <- "cbind(yes, no) ~ z_inc*z_incstt + z_inc*z_trnprv + (1 | reg) + (1 | stt) + (1 | eth)  + (1 | educ) + (1 | age) + (1 | metro) + (1 | inc)"
+#   } else if (formula_level == 3) {
+#     formula <- "cbind(yes, no) ~ z_inc*z_incstt + z_inc*z_trnprv + (1 + z_inc | reg) + (1 + z_inc | stt) + (1 + z_inc | eth)  + (1 + z_inc | educ) + (1 + z_inc | age) + (1 + z_inc | metro) + (1 | inc)"
+#   } else if (formula_level == 4) {
+#     formula <- "cbind(yes, no) ~ z_inc*z_incstt + z_inc*z_trnprv +
+#     (1 + z_inc | reg) + (1 + z_inc | stt) + (1 + z_inc | eth)  + (1 + z_inc | educ) + (1 + z_inc | age) + (1 + z_inc | metro) + (1 | inc) + (1 | reg : eth) + (1 | reg : inc) + (1 | reg : age) + (1 | reg : metro) + (1 | stt : eth) + (1 | stt : inc) + (1 | stt : age) + (1 | stt : metro) + (1 | eth : inc) + (1 | eth : age) + (1 | eth : metro) + (1 | inc : age) + (1 | inc : metro) + (1 | educ : age) + (1 | educ : stt) + (1 | educ : inc) + (1 | educ : eth) + (1 | educ : reg) + (1 | educ : metro)"
+#   } else {
+#     stop("Invalid formula level")
+#   }
+#   
+#   if(formula_level == 1) {
+#   model <- stan_glm(formula, data = data_matrix, family = binomial(link = "logit"),
+#                       iter = 1000)
+#   } else {
+#     model <- stan_glmer(formula, data = data_matrix, family = binomial(link = "logit"),
+#                       iter = 1000)
+#   }
+#   pred <- posterior_epred(model, newdata = data_matrix)
+#   model_loo <- loo(model)
+#   model_filename <- glue::glue("model_matrix_complete-{year}-formula_level_{formula_level}.rds")
+#   model_matrix <- list(model = model, data_matrix = data_matrix, pred = pred, 
+#                        loo = model_loo, name = model_filename)
+#   # saveRDS(model_matrix, model_matrix_path)
+# }
+```
+
+
+```{r}
+# droplet1 <- docklet_create(region = "nyc2", size = "s-4vcpu-8gb")
+# droplet2 <- docklet_create(region = "nyc2", size = "s-4vcpu-8gb")
+# droplet3 <- docklet_create(region = "nyc2", size = "s-4vcpu-8gb")
+# 
+# droplet(droplet1$id) %>%
+#   docklet_pull("asachet/rocker-stan")
+# 
+# droplet(droplet2$id) %>%
+#   docklet_pull("asachet/rocker-stan")
+# 
+# droplet(droplet3$id) %>%
+#   docklet_pull("asachet/rocker-stan")
+# 
+# ip1 <- droplet(droplet1$id)$networks$v4[[1]]$ip_address
+# ip2 <- droplet(droplet2$id)$networks$v4[[1]]$ip_address
+# ip3 <- droplet(droplet3$id)$networks$v4[[1]]$ip_address
+# ips <- c(ip1, ip2, ip3)
+# 
+# rscript <- c("sudo", "docker", "run", "--net=host", 
+#              "asachet/rocker-stan", "Rscript")
+# 
+# # Connect and create a cluster
+# cl <- makeClusterPSOCK(
+#   ips,
+#   
+#   # User name; DO droplets use root by default
+#   user = "root",
+#   
+#   # Use private SSH key registered with DO
+#   rshopts = c(
+#     "-o", "StrictHostKeyChecking=no",
+#     "-o", "IdentitiesOnly=yes",
+#     "-i", ssh_private_key_file
+#   ),
+#   
+#   rscript = rscript,
+#   
+#   # Things to run each time the remote instance starts
+#   rscript_args = c(
+#     # Set up .libPaths() for the root user and install future/purrr/furrr packages
+#     "-e", shQuote("local({p <- Sys.getenv('R_LIBS_USER'); dir.create(p, recursive = TRUE, showWarnings = FALSE); .libPaths(p)})"),
+#     # "-e", shQuote("if (!requireNamespace('purrr', quietly = TRUE)) install.packages('purrr')"),
+#     # "-e", shQuote("if (!requireNamespace('furrr', quietly = TRUE)) install.packages('furrr')"),
+#     # Make sure the remote computer uses all CPU cores with Stan
+#     "-e", shQuote("options(mc.cores = parallel::detectCores())")
+#   ),
+#   dryrun = FALSE
+# )
+# 
+# # Create the future plan
+# plan(list(
+#   tweak(cluster, workers = cl), 
+#   multisession
+# ))
+```
+
+```{r}
+# remote_name %<-% {
+#   Sys.info()[["nodename"]]
+# }; remote_name
+```
+
+```{r}
+prepare_data <- function(year) {
+  states_data <- process_states_data(states_election_data, states_pop_income_data, year)
+  election_processed <- process_election_data(election_all, year)
+  covariates <- c("stt", "eth", "inc", "age", "educ", "metro")
+  
+  data_matrix <- expand.grid(
+    stt = factor(1:length(stt.label)),
+    eth = factor(1:length(eth.label)),
+    inc = factor(1:length(inc.label)),
+    age = factor(1:length(age.label)),
+    educ = factor(1:length(educ.label)),
+    metro = factor(1:length(metro.label))
+  ) %>%
+    mutate(
+      grp = apply(., 1, paste, collapse = "_"),
+      ix = row_number()
+    ) %>%
+    left_join(states_data, by = c("stt" = "stt")) %>%
+    mutate(
+      reg = factor(reg.lkup[as.numeric(stt)]),
+      z_inc = arm::rescale(as.numeric(inc))
+    )
+  
+  election_subset <- election_processed %>%
+    mutate(
+      # Vote for Republican
+      vote = ifelse(vote == "Republican", 1, 0),
+      grp = apply(.[, covariates], 1, paste, collapse = "_"),
+      ones = 1
+    )
+  
+  data_matrix <- calc_and_add_weighted_results(data_matrix, election_subset)
+  return(data_matrix)
+}
+
+`fit_model <- function(data_matrix, formula_level = 1, run = FALSE) {
+  if (run == FALSE) {
+    return(NULL)
+  }
+  year <- unique(data_matrix$year)
+  if(formula_level == 1) {
+    formula <- "cbind(yes, no) ~ z_incstt + z_trnprv + reg + stt + eth + educ + age + metro + inc"
+  } else if (formula_level == 2) {
+    formula <- "cbind(yes, no) ~ z_inc*z_incstt + z_inc*z_trnprv + (1 | reg) + (1 | stt) + (1 | eth)  + (1 | educ) + (1 | age) + (1 | metro) + (1 | inc)"
+  } else if (formula_level == 3) {
+    formula <- "cbind(yes, no) ~ z_inc*z_incstt + z_inc*z_trnprv + (1 + z_inc | reg) + (1 + z_inc | stt) + (1 + z_inc | eth)  + (1 + z_inc | educ) + (1 + z_inc | age) + (1 + z_inc | metro) + (1 | inc)"
+  } else if (formula_level == 4) {
+    formula <- "cbind(yes, no) ~ z_inc*z_incstt + z_inc*z_trnprv +
+    (1 + z_inc | reg) + (1 + z_inc | stt) + (1 + z_inc | eth)  + (1 + z_inc | educ) + (1 + z_inc | age) + (1 + z_inc | metro) + (1 | inc) + (1 | reg : eth) + (1 | reg : inc) + (1 | reg : age) + (1 | reg : metro) + (1 | stt : eth) + (1 | stt : inc) + (1 | stt : age) + (1 | stt : metro) + (1 | eth : inc) + (1 | eth : age) + (1 | eth : metro) + (1 | inc : age) + (1 | inc : metro) + (1 | educ : age) + (1 | educ : stt) + (1 | educ : inc) + (1 | educ : eth) + (1 | educ : reg) + (1 | educ : metro) + (1 | educ : metro : inc)"
+  } else {
+    stop("Invalid formula level")
+  }
+  
+  if(formula_level == 1) {
+  model <- stan_glm(formula, data = data_matrix, family = binomial(link = "logit"),
+                    iter = 500, prior = normal(0, 1, autoscale = TRUE),
+                    prior_intercept = normal(0, 1, autoscale = TRUE))
+  } else {
+    model <- stan_glmer(formula, data = data_matrix, family = binomial(link = "logit"),
+                      iter = 500, prior = normal(0, 1, autoscale = TRUE),
+                      prior_covariance = decov(scale = 0.50),
+                      adapt_delta = 0.99, 
+                      seed = 10027)
+  }
+  # pred <- posterior_epred(model, newdata = data_matrix)
+  model_filename <- glue::glue("model_matrix_complete-{year}-formula_level_{formula_level}.rds")
+  model_matrix <- list(model = model, data_matrix = data_matrix, name = model_filename)
+  saveRDS(model_matrix, model_filename)
+  return(model_matrix)
+}`
+```
+
+```{r}
+years <- c(2012, 2016, 2020)
+data_matrices <- lapply(years, prepare_data)
+# data_matrices %>% saveRDS(here("data/data_matrices.rds"))
+
+models <- vector("list", length(data_matrices))
+for (i in seq_along(years)) {
+  models[[i]] <- fit_model(data_matrices[[i]], formula_level = 4, run = TRUE)
+}
+```
+
+```{r}
+library(analogsea)
+
+# Create volume and droplet (your existing code)
+vol1 <- volume_create('test', 1)
+droplet1 <- docklet_create(region = "nyc2", size = "s-1vcpu-1gb", volume = vol1)
+docklet_ps(droplet1)
+
+droplet_delete(droplet1)
 ```
 
 
