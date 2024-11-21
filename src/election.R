@@ -185,19 +185,34 @@ process_ipums_data <- function(ipums_data, year) {
     ) %>%
     dplyr::ungroup()
 
-  ipums_agg
+  return(ipums_agg)
+}
 
-  # expand.grid(
-  #   sex = factor(1:length(sex.label)),
-  #   age = factor(1:length(age.label)),
-  #   eth = factor(1:length(eth.label)),
-  #   educ = factor(1:length(educ.label)),
-  #   inc = factor(1:length(inc.label)),
-  #   stt = factor(1:length(stt.label)),
-  #   metro = factor(1:length(metro.label))
-  # ) %>%
-  #   left_join(ipums_agg, by = c("sex", "age", "eth", "educ", "inc", "metro", "stt")) %>%
-  #   mutate(pop = replace_na(pop, 0),
-  #          wtpop = replace_na(wtpop, 0)) %>%
-  #   write_csv("../data/census-pums-pop-2016.csv")
+generate_poststratification_data <- function() {
+  ipums_data <- ipumsr::read_ipums_ddi("../data/IPUMS/usa_00008.xml") %>%
+    ipumsr::read_ipums_micro()
+  years <- c(2008, 2012, 2016, 2020)
+  dfs <- purrr::map(years, ~ process_ipums_data(ipums_data, year = .x) %>% mutate(year = .x))
+
+  expand.grid(
+    year = years,
+    sex = factor(1:length(sex.label)),
+    age = factor(1:length(age.label)),
+    eth = factor(1:length(eth.label)),
+    educ = factor(1:length(educ.label)),
+    inc = factor(1:length(inc.label)),
+    stt = factor(1:length(stt.label)),
+    metro = factor(1:length(metro.label))
+  ) %>%
+    dplyr::left_join(list_rbind(dfs), by = c("sex", "age", "eth", "educ", "inc", "metro", "stt", "year")) %>%
+    dplyr::mutate(
+      pop = replace_na(pop, 0),
+      wtpop = replace_na(wtpop, 0)
+    ) %>%
+    tidyr::pivot_wider(
+      names_from = year,
+      values_from = c(pop, wtpop),
+      names_sep = ""
+    ) %>%
+    readr::write_csv("../data/census-pums-pop.csv")
 }
