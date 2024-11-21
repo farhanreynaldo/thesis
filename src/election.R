@@ -3,8 +3,7 @@ library(tidyverse)
 library(here)
 library(haven)
 library(arm)
-library(rstanarm)
-library(tidybayes)
+library(ipumsr)
 
 # Set working directory
 here::i_am("src/election.R")
@@ -64,8 +63,10 @@ process_election_data <- function(election_data, year) {
     dplyr::rename(county_fips = FIPS) %>%
     dplyr::mutate(metro = case_when(
       Description == "Metro - Counties in metro areas of 1 million population or more" ~ 3,
-      Description %in% c("Metro - Counties in metro areas of 250,000 to 1 million population",
-                         "Metro - Counties in metro areas of fewer than 250,000 population") ~ 2,
+      Description %in% c(
+        "Metro - Counties in metro areas of 250,000 to 1 million population",
+        "Metro - Counties in metro areas of fewer than 250,000 population"
+      ) ~ 2,
       stringr::str_starts(Description, "Nonmetro") ~ 1,
       TRUE ~ -1
     )) %>%
@@ -146,10 +147,10 @@ process_ipums_data <- function(ipums_data, year) {
       ),
       race = factor(
         case_when(
-          HISPAN > 0 ~ 2,              # Hispanic
+          HISPAN > 0 ~ 2, # Hispanic
           RACE == 1 & HISPAN == 0 ~ 1, # Non-hispanic White
           RACE == 2 & HISPAN == 0 ~ 3, # Non-hispanic Black
-          TRUE ~ 4                     # Other
+          TRUE ~ 4 # Other
         )
       ),
       educ_group = factor(
@@ -164,9 +165,9 @@ process_ipums_data <- function(ipums_data, year) {
       ),
       metro = factor(
         case_when(
-          METRO == 1 ~ 1,          # Rural
-          METRO %in% c(3, 4) ~ 2,  # Suburban
-          METRO == 2 ~ 3,          # Urban
+          METRO == 1 ~ 1, # Rural
+          METRO %in% c(3, 4) ~ 2, # Suburban
+          METRO == 2 ~ 3, # Urban
           TRUE ~ -1
         )
       ),

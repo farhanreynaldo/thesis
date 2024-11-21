@@ -5,7 +5,7 @@ theme_benedict <- function(base_size = 12,
                            dark_text = "#1A242F") {
   mid_text <- monochromeR::generate_palette(dark_text, "go_lighter", n_colours = 5)[2]
   light_text <- monochromeR::generate_palette(dark_text, "go_lighter", n_colours = 5)[3]
-  
+
   theme_minimal(base_size = base_size) +
     theme(
       text = element_text(colour = mid_text, family = "IBM Plex Sans", lineheight = 1.1),
@@ -28,7 +28,7 @@ theme_maps <- function(base_size = 12,
                        dark_text = "#1A242F") {
   mid_text <- monochromeR::generate_palette(dark_text, "go_lighter", n_colours = 5)[2]
   light_text <- monochromeR::generate_palette(dark_text, "go_lighter", n_colours = 5)[3]
-  
+
   theme_void(base_size = base_size) +
     theme(
       text = element_text(colour = mid_text, family = "IBM Plex Sans", lineheight = 1.1),
