@@ -138,7 +138,7 @@ prepare_data <- function(year) {
     formula <- "cbind(yes, no) ~ z_inc*z_incstt + z_inc*z_trnprv + (1 + z_inc | reg) + (1 + z_inc | stt) + (1 + z_inc | eth)  + (1 + z_inc | educ) + (1 + z_inc | age) + (1 + z_inc | metro) + (1 | inc)"
   } else if (formula_level == 4) {
     formula <- "cbind(yes, no) ~ z_inc*z_incstt + z_inc*z_trnprv +
-    (1 + z_inc | reg) + (1 + z_inc | stt) + (1 + z_inc | eth)  + (1 + z_inc | educ) + (1 + z_inc | age) + (1 + z_inc | metro) + (1 | inc) + (1 | reg : eth) + (1 | reg : inc) + (1 | reg : age) + (1 | reg : metro) + (1 | stt : eth) + (1 | stt : inc) + (1 | stt : age) + (1 | stt : metro) + (1 | eth : inc) + (1 | eth : age) + (1 | eth : metro) + (1 | inc : age) + (1 | inc : metro) + (1 | educ : age) + (1 | educ : stt) + (1 | educ : inc) + (1 | educ : eth) + (1 | educ : reg) + (1 | educ : metro) + (1 | educ : metro : inc)"
+    (1 + z_inc | reg) + (1 + z_inc | stt) + (1 + z_inc | eth)  + (1 + z_inc | educ) + (1 + z_inc | age) + (1 + z_inc | metro) + (1 | inc) + (1 | reg : eth) + (1 | reg : inc) + (1 | reg : age) + (1 | reg : metro) + (1 | stt : eth) + (1 | stt : inc) + (1 | stt : age) + (1 | stt : metro) + (1 | eth : inc) + (1 | eth : age) + (1 | eth : metro) + (1 | inc : age) + (1 | inc : metro) + (1 | educ : age) + (1 | educ : stt) + (1 | educ : inc) + (1 | educ : eth) + (1 | educ : reg) + (1 | educ : metro)"
   } else {
     stop("Invalid formula level")
   }
@@ -150,9 +150,7 @@ prepare_data <- function(year) {
   } else {
     model <- stan_glmer(formula, data = data_matrix, family = binomial(link = "logit"),
                       iter = 500, prior = normal(0, 1, autoscale = TRUE),
-                      prior_covariance = decov(scale = 0.50),
-                      adapt_delta = 0.99, 
-                      seed = 10027)
+                      prior_intercept = normal(0, 1, autoscale = TRUE))
   }
   # pred <- posterior_epred(model, newdata = data_matrix)
   model_filename <- glue::glue("model_matrix_complete-{year}-formula_level_{formula_level}.rds")
