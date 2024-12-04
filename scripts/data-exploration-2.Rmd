@@ -46,6 +46,10 @@ metro.label <- c("Rural", "Suburban", "Urban")
 stt_dict <- data.frame(
   state_name = stt.label, state_abbr = stt.abb.label, stt = factor(1:51)
 )
+
+# COLORS <- c("#fdbb84", "#fc8d59", "#e34a33", "#b30000")
+COLORS <- c("#fdbb84", "#fc8d59", "#e34a33")
+COL_NAMES <- c("eth", "inc", "age", "educ", "metro")
 ```
 
 ## Elections
@@ -107,7 +111,7 @@ create_survey_means <- function(data, ..., year = NULL) {
 ## Distribution
 
 ```{r}
-col_names <- c("eth", "inc", "age", "educ", "metro")
+
 
 plot_variable <- function(col_name) {
   elections %>%
@@ -121,19 +125,17 @@ plot_variable <- function(col_name) {
     ggplot(aes(x = prop, y = col, fill = year)) +
     geom_col(position = "dodge") +
     theme_benedict() +
-    scale_fill_manual(values = c("#fdbb84", "#fc8d59", "#e34a33")) +
+    scale_fill_manual(values = COLORS) +
     scale_x_continuous(labels = scales::label_percent()) +
     labs(title = col_name, x = "", y = "") +
     theme(axis.text.y = element_text(size = 10))
 }
 
-purrr::map(col_names, plot_variable)
+purrr::map(COL_NAMES, plot_variable)
 ```
 
 
 ```{r}
-cols <- c("eth", "inc", "age", "educ", "metro")
-
 plot_dist_pop <- function(col_name) {
   poststrat_data %>% 
     mutate(col = map_label(!!ensym(col_name)),
@@ -152,7 +154,7 @@ plot_dist_pop <- function(col_name) {
     theme(axis.text.y = element_text(size = 10))
 }
 
-purrr::map(cols, plot_dist_pop)
+purrr::map(COL_NAMES, plot_dist_pop)
 ```
 
 
@@ -211,7 +213,7 @@ elections %>%
   geom_line() + 
   geom_hline(aes(yintercept = 0.5), color = "grey80", linewidth = 0.2) +
   facet_wrap(~inc_str) +
-  scale_color_manual(values = c("#fdbb84", "#fc8d59", "#e34a33")) +
+  scale_color_manual(values = COLORS) +
   scale_y_continuous(labels = scales::label_percent(), breaks = seq(0, 1, 0.25)) + 
   coord_cartesian(ylim = c(0, 1)) +
   labs(x = "Education level", y = "Republican Vote Share (%)", 
@@ -245,7 +247,7 @@ elections %>%
   geom_line() + 
   geom_hline(aes(yintercept = 0.5), color = "grey80", linewidth = 0.2) +
   facet_wrap(~metro_str, ncol = 2) +
-  scale_color_manual(values = c("#fdbb84", "#fc8d59", "#e34a33")) +
+  scale_color_manual(values = COLORS) +
   scale_y_continuous(labels = scales::label_percent(), breaks = seq(0, 1, 0.25)) + 
   coord_cartesian(ylim = c(0, 1)) +
   labs(x = "Education level", y = "Republican Vote Share (%)", 
@@ -278,7 +280,7 @@ elections %>%
   geom_line() + 
   geom_hline(aes(yintercept = 0.5), color = "grey80", linewidth = 0.2) +
   facet_wrap(~eth_str) +
-  scale_color_manual(values = c("#fdbb84", "#fc8d59", "#e34a33")) +
+  scale_color_manual(values = COLORS) +
   scale_y_continuous(labels = scales::label_percent(), breaks = seq(0, 1, 0.25)) + 
   coord_cartesian(ylim = c(0, 1)) +
   theme_classic() 
@@ -307,7 +309,7 @@ elections %>%
   geom_line() + 
   geom_hline(aes(yintercept = 0.5), color = "grey80", linewidth = 0.2) +
   facet_wrap(~age_str) +
-  scale_color_manual(values = c("#fdbb84", "#fc8d59", "#e34a33")) +
+  scale_color_manual(values = COLORS) +
   scale_y_continuous(labels = scales::label_percent(), breaks = seq(0, 1, 0.25)) + 
   coord_cartesian(ylim = c(0, 1)) +
   theme_classic() 
@@ -335,8 +337,8 @@ elections %>%
                   alpha = 0.7) + 
   geom_line() + 
   geom_hline(aes(yintercept = 0.5), color = "grey80", linewidth = 0.2) +
-  facet_wrap(~stt_str) +
-  scale_color_manual(values = c("#fdbb84", "#fc8d59", "#e34a33")) +
+  facet_wrap(~stt_str, ncol = 7) +
+  scale_color_manual(values = COLORS) +
   scale_y_continuous(labels = scales::label_percent(), breaks = seq(0, 1, 0.25)) + 
   coord_cartesian(ylim = c(0, 1)) +
   theme_classic() 
@@ -367,7 +369,7 @@ elections %>%
   geom_line() + 
   geom_hline(aes(yintercept = 0.5), color = "grey80", linewidth = 0.2) +
   facet_wrap(~inc_str) +
-  scale_color_manual(values = c("#fdbb84", "#fc8d59", "#e34a33")) +
+  scale_color_manual(values = COLORS) +
   scale_y_continuous(labels = scales::label_percent(), breaks = seq(0, 1, 0.25)) + 
   coord_cartesian(ylim = c(0, 1)) +
   theme_classic() 
@@ -398,7 +400,7 @@ elections %>%
   geom_line() + 
   geom_hline(aes(yintercept = 0.5), color = "grey80", linewidth = 0.2) +
   facet_wrap(~age_str) +
-  scale_color_manual(values = c("#fdbb84", "#fc8d59", "#e34a33")) +
+  scale_color_manual(values = COLORS) +
   scale_y_continuous(labels = scales::label_percent(), breaks = seq(0, 1, 0.25)) + 
   coord_cartesian(ylim = c(0, 1)) +
   theme_classic() 
@@ -429,7 +431,7 @@ elections %>%
   geom_line() + 
   geom_hline(aes(yintercept = 0.5), color = "grey80", linewidth = 0.2) +
   facet_wrap(~eth_str) +
-  scale_color_manual(values = c("#fdbb84", "#fc8d59", "#e34a33")) +
+  scale_color_manual(values = COLORS) +
   scale_y_continuous(labels = scales::label_percent(), breaks = seq(0, 1, 0.25)) + 
   coord_cartesian(ylim = c(0, 1)) +
   theme_classic() 
@@ -460,7 +462,7 @@ elections %>%
   geom_line() + 
   geom_hline(aes(yintercept = 0.5), color = "grey80", linewidth = 0.2) +
   facet_wrap(~stt_str) +
-  scale_color_manual(values = c("#fdbb84", "#fc8d59", "#e34a33")) +
+  scale_color_manual(values = COLORS) +
   scale_y_continuous(labels = scales::label_percent(), breaks = seq(0, 1, 0.25)) + 
   coord_cartesian(ylim = c(0, 1)) +
   theme_classic() 
