@@ -125,7 +125,7 @@ prepare_data <- function(year) {
   return(data_matrix)
 }
 
-`fit_model <- function(data_matrix, formula_level = 1, run = FALSE) {
+fit_model <- function(data_matrix, formula_level = 1, run = FALSE) {
   if (run == FALSE) {
     return(NULL)
   }
@@ -159,7 +159,7 @@ prepare_data <- function(year) {
   model_matrix <- list(model = model, data_matrix = data_matrix, name = model_filename)
   saveRDS(model_matrix, model_filename)
   return(model_matrix)
-}`
+}
 ```
 
 ```{r}
@@ -171,6 +171,7 @@ for (i in seq_along(years)) {
   models[[i]] <- fit_model(data_matrices[[i]], formula_level = 4, run = TRUE)
 }
 ```
+
 
 ```{r}
 model_matrix_filenames <- list.files(
