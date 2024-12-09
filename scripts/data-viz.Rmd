@@ -64,7 +64,16 @@ create_adjusted_data_matrix <- function(model_matrix, poststrat_data = NULL) {
     mutate(grp = apply(.[, COVARIATES], 1, paste, collapse = "_"),
            pop = year_pop_column) %>% 
     dplyr::select(grp, pop = !!year_pop_column) %>% 
-    right_join(data_matrix, by = "grp")
+    right_join(data_matrix, by = "grp") %>% 
+    group_by(stt) %>% 
+    mutate(
+      vote = weighted_correction(
+        pred,
+        pop / sum(pop),
+        first(rep_votes)
+      )$corrected
+    ) %>% 
+    ungroup()
 }
 
 poststrat_by <- function(..., data_matrix, year) {
@@ -73,10 +82,10 @@ poststrat_by <- function(..., data_matrix, year) {
   data_matrix %>% 
     group_by(across(all_of(c("year", vars)))) %>%
     summarise(
-      pred_all = sum(pred * pop, na.rm = TRUE) / sum(pop, na.rm = TRUE),
-      pred_white = sum(pred[eth == 1] * pop[eth == 1], na.rm = TRUE) / sum(pop[eth == 1], na.rm = TRUE),
-      se_all = sqrt((pred_all * (1 - pred_all)) / sum(n)),
-      se_white = sqrt((pred_white * (1 - pred_white)) / sum(n[eth == 1])), 
+      vote_all = sum(vote * pop, na.rm = TRUE) / sum(pop, na.rm = TRUE),
+      vote_white = sum(vote[eth == 1] * pop[eth == 1], na.rm = TRUE) / sum(pop[eth == 1], na.rm = TRUE),
+      se_all = sqrt((vote_all * (1 - vote_all)) / sum(n)),
+      se_white = sqrt((vote_white * (1 - vote_white)) / sum(n[eth == 1])), 
       .groups = "drop"
     ) %>%
         mutate(across(is.factor, map_label, .names = "{.col}_str"))
