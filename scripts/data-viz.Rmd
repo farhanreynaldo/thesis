@@ -76,35 +76,62 @@ poststrat_by <- function(..., model_matrix, year) {
 ```
 
 ```{r}
-model_matrix_2012 <- readRDS("../data/model/model_matrix_complete-2012-formula_level_4.rds")
-model_matrix_2012$pred <- readRDS("../data/model/pred_complete-2012-formula_level_4.rds")
+model_matrix_2012 <- readRDS("../data/model/second-iteration/model_matrix_complete-2012-formula_level_4.rds")
+model_matrix_2012$pred <- readRDS("../data/model/second-iteration/pred_complete-2012-formula_level_4.rds")
 
-model_matrix_2016 <- readRDS("../data/model/model_matrix_complete-2016-formula_level_4.rds")
-model_matrix_2016$pred <- readRDS("../data/model/pred_complete-2016-formula_level_4.rds")
+model_matrix_2016 <- readRDS("../data/model/second-iteration/model_matrix_complete-2016-formula_level_4.rds")
+model_matrix_2016$pred <- readRDS("../data/model/second-iteration/pred_complete-2016-formula_level_4.rds")
 
-model_matrix_2020 <- readRDS("../data/model/model_matrix_complete-2020-formula_level_4.rds")
-model_matrix_2020$pred <- readRDS("../data/model/pred_complete-2020-formula_level_4.rds")
+model_matrix_2020 <- readRDS("../data/model/second-iteration/model_matrix_complete-2020-formula_level_4.rds")
+model_matrix_2020$pred <- readRDS("../data/model/second-iteration/pred_complete-2020-formula_level_4.rds")
 
 model_matrices <- list(model_matrix_2012, model_matrix_2016, model_matrix_2020)
 years <- c(2012, 2016, 2020)
 
 # Solely for sorting the state facet map
-states_data <- process_states_data(states_election_data, states_pop_income_data, 2020)
+states_data <- process_states_data(states_election_data, states_pop_income_data, 2012)
 ```
 
-```{r, fig.width = 10, fig.height = 7}
-# Assuming each model matrix in model_matrices contains a 'model' object for the MCMC
-plots <- map2(model_matrices, years, ~ {
-  rhat_values <- bayesplot::rhat(.x$model)
-  plot <- bayesplot::mcmc_rhat_hist(rhat_values) + 
-    ggtitle(paste("Rhat diagnostic for election model", .y))
-  return(plot)
-})
+## Income-state
 
-patchwork::wrap_plots(plots, ncol = 2, guides = "collect")
-ggsave(here("figures/rhat.png"), width = 10, height = 7, dpi = 300)
+```{r, fig.width = 10, fig.height = 10}
+income_state <- map2(model_matrices, years, ~poststrat_by("inc", "stt", model_matrix = .x, year = .y)) %>% 
+  list_rbind() %>% 
+  left_join(stt_dict, by = c("stt" = "stt")) %>%
+  filter(!state_abbr %in% c("AK", "HI", "DC")) %>%
+  left_join(states_data %>% dplyr::select(state_abbr, rep_votes), by = c("state_abbr" = "state_abbr")) %>% 
+  mutate(state_name = fct_reorder(state_name, rep_votes, .desc = TRUE)) %>% 
+  mutate(year = as.factor(year)) 
+
+income_state %>%
+  ggplot(aes(group = year, color = year)) + 
+  geom_line(aes(x = inc, y = pred_all), linewidth = 1, alpha = 0.8) + 
+  geom_hline(aes(yintercept = 0.5), color = "grey80", linewidth = 0.2) +
+  facet_wrap(~state_name, ncol = 8) + 
+  scale_x_discrete(labels = c("poor", "", "mid", "", "rich")) +
+  scale_color_manual(values = c("#FCBE3A", "#FCA53A", "#FF5C33")) + 
+  scale_y_continuous(labels = scales::label_percent(), breaks = seq(0, 1, 0.5)) + 
+  coord_cartesian(ylim = c(0, 1)) +
+  labs(
+    x = "", y = "", 
+    # title = "Republican vote share for each income category across states-year"
+    ) + 
+  theme_classic() +
+  theme(
+    plot.title = element_text(size = 16, hjust = 0.5, margin = margin(0, 0, 20, 0)),
+    plot.caption = element_text(hjust = 0.5, margin = margin(10, 0, 0, 0)),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    strip.text = element_text(size = 12),
+    legend.position = "top",
+    legend.text = element_text(size = 14),
+    legend.title = element_text(size = 14)
+  )
+
+
+ggsave(here("figures/model/income-state.svg"), width = 12, height = 10)
+ggsave(here("figures/model/income-state.png"), width = 12, height = 10, dpi = 300)
 ```
-
 ## Educ-state
 
 ```{r, fig.width = 10, fig.height = 10}
@@ -142,9 +169,244 @@ educ_state %>%
     axis.text.x = element_text(size = 7)
   )
 
-ggsave(here("figures/educ-state.svg"), width = 12, height = 10)
-ggsave(here("figures/educ-state.png"), width = 12, height = 10, dpi = 300)
+ggsave(here("figures/model/educ-state.svg"), width = 12, height = 10)
+ggsave(here("figures/model/educ-state.png"), width = 12, height = 10, dpi = 300)
 ```
+
+## Educ-inc
+
+```{r}
+educ_inc <- map2(model_matrices, years, ~poststrat_by("educ", "inc", model_matrix = .x, year = .y)) %>%
+  list_rbind() %>% 
+  mutate(year = as.factor(year)) 
+
+educ_inc %>%
+  ggplot(aes(group = year, color = year)) + 
+  geom_line(aes(x = educ_str, y = pred_all), linewidth = 1, alpha = 0.8) + 
+  geom_hline(aes(yintercept = 0.5), color = "grey80", linewidth = 0.2) +
+  facet_wrap(~inc_str) +
+  scale_color_manual(values = c("#FCBE3A", "#FCA53A", "#FF5C33")) + 
+  scale_y_continuous(labels = scales::label_percent(), breaks = seq(0, 1, 0.5)) + 
+  coord_cartesian(ylim = c(0, 1)) +
+  labs(
+    x = "", y = "", 
+    # title = "Republican vote share for each education category across states-year"
+  ) + 
+  theme_classic() +
+  theme(
+    plot.title = element_text(size = 16, hjust = 0.5, margin = margin(0, 0, 20, 0)),
+    plot.caption = element_text(hjust = 0.5, margin = margin(10, 0, 0, 0)),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    strip.text = element_text(size = 10),
+    legend.position = "top"
+  )
+
+ggsave(here("figures/model/educ-state.svg"), width = 12, height = 10)
+ggsave(here("figures/model/educ-state.png"), width = 12, height = 10, dpi = 300)
+```
+
+## Educ-inc-eth
+
+```{r, width = 12, height = 8}
+educ_inc <- map2(model_matrices, years, ~poststrat_by("educ", "inc", model_matrix = .x, year = .y)) %>%
+  list_rbind() %>% 
+  mutate(year = as.factor(year)) 
+
+educ_inc %>%
+  ggplot(aes(group = year)) +
+  geom_line(aes(x = inc_str, y = pred_all), linewidth = 1, alpha = 0.8, color = "grey") + 
+  geom_line(aes(x = inc_str, y = pred_white), linewidth = 1, alpha = 0.8, color = "orange") +
+  geom_hline(aes(yintercept = 0.5), color = "grey80", linewidth = 0.2) +
+  facet_grid(vars(year), vars(educ_str)) + 
+  scale_color_manual(values = c("#FCBE3A", "#FCA53A", "#FF5C33")) + 
+  scale_y_continuous(labels = scales::label_percent(), breaks = seq(0, 1, 0.5)) + 
+  coord_cartesian(ylim = c(0, 1)) +
+  labs(
+    x = "", y = "", 
+    # title = "Republican vote share for each education category across states-year"
+  ) + 
+  theme_classic() +
+  theme(
+    plot.title = element_text(size = 16, hjust = 0.5, margin = margin(0, 0, 20, 0)),
+    plot.caption = element_text(hjust = 0.5, margin = margin(10, 0, 0, 0)),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    strip.text = element_text(size = 7),
+    axis.text.x = element_text(size = 5),
+    legend.position = "top"
+  )
+
+ggsave(here("figures/model/inc-educ-eth.svg"), width = 8, height = 6)
+ggsave(here("figures/model/inc-educ-eth.png"), width = 8, height = 6, dpi = 300)
+```
+
+## metro-inc-eth
+
+```{r}
+metro_inc <- map2(model_matrices, years, ~poststrat_by("metro", "inc", model_matrix = .x, year = .y)) %>%
+  list_rbind() %>% 
+  mutate(year = as.factor(year)) 
+
+metro_inc %>%
+  ggplot(aes(group = year)) +
+  geom_line(aes(x = inc_str, y = pred_all), linewidth = 1, alpha = 0.8, color = "grey") + 
+  geom_line(aes(x = inc_str, y = pred_white), linewidth = 1, alpha = 0.8, color = "orange") +
+  geom_hline(aes(yintercept = 0.5), color = "grey80", linewidth = 0.2) +
+  facet_grid(vars(year), vars(metro_str)) + 
+  scale_color_manual(values = c("#FCBE3A", "#FCA53A", "#FF5C33")) + 
+  scale_y_continuous(labels = scales::label_percent(), breaks = seq(0, 1, 0.5)) + 
+  coord_cartesian(ylim = c(0, 1)) +
+  labs(
+    x = "", y = "", 
+    # title = "Republican vote share for each education category across states-year"
+  ) + 
+  theme_classic() +
+  theme(
+    plot.title = element_text(size = 16, hjust = 0.5, margin = margin(0, 0, 20, 0)),
+    plot.caption = element_text(hjust = 0.5, margin = margin(10, 0, 0, 0)),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    strip.text = element_text(size = 7),
+    axis.text.x = element_text(size = 5),
+    legend.position = "top"
+  )
+
+ggsave(here("figures/model/inc-metro-eth.svg"), width = 8, height = 6)
+ggsave(here("figures/model/inc-metro-eth.png"), width = 8, height = 6, dpi = 300)
+```
+
+## metro-educ-eth
+
+```{r}
+metro_educ <- map2(model_matrices, years, ~poststrat_by("metro", "educ", model_matrix = .x, year = .y)) %>%
+  list_rbind() %>% 
+  mutate(year = as.factor(year)) 
+
+metro_educ %>%
+  ggplot(aes(group = year)) +
+  geom_line(aes(x = educ_str, y = pred_all), linewidth = 1, alpha = 0.8, color = "grey") + 
+  geom_line(aes(x = educ_str, y = pred_white), linewidth = 1, alpha = 0.8, color = "orange") +
+  geom_hline(aes(yintercept = 0.5), color = "grey80", linewidth = 0.2) +
+  facet_grid(vars(year), vars(metro_str)) + 
+  scale_color_manual(values = c("#FCBE3A", "#FCA53A", "#FF5C33")) + 
+  scale_y_continuous(labels = scales::label_percent(), breaks = seq(0, 1, 0.5)) + 
+  coord_cartesian(ylim = c(0, 1)) +
+  labs(
+    x = "", y = "", 
+    # title = "Republican vote share for each education category across states-year"
+  ) + 
+  theme_classic() +
+  theme(
+    plot.title = element_text(size = 16, hjust = 0.5, margin = margin(0, 0, 20, 0)),
+    plot.caption = element_text(hjust = 0.5, margin = margin(10, 0, 0, 0)),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    strip.text = element_text(size = 7),
+    axis.text.x = element_text(size = 5),
+    legend.position = "top"
+  )
+
+ggsave(here("figures/model/educ-metro-eth.svg"), width = 8, height = 6)
+ggsave(here("figures/model/educ-metro-eth.png"), width = 8, height = 6, dpi = 300)
+```
+
+```{r}
+educ_inc <- map2(model_matrices, years, ~poststrat_by("educ", "inc", model_matrix = .x, year = .y)) %>%
+  list_rbind() %>% 
+  mutate(year = as.factor(year)) 
+
+educ_inc %>%
+  ggplot(aes(group = year, color = year)) + 
+  geom_line(aes(x = inc_str, y = pred_all), linewidth = 1, alpha = 0.8) + 
+  geom_hline(aes(yintercept = 0.5), color = "grey80", linewidth = 0.2) +
+  facet_wrap(~educ_str) +
+  scale_color_manual(values = c("#FCBE3A", "#FCA53A", "#FF5C33")) + 
+  scale_y_continuous(labels = scales::label_percent(), breaks = seq(0, 1, 0.5)) + 
+  coord_cartesian(ylim = c(0, 1)) +
+  labs(
+    x = "", y = "", 
+    # title = "Republican vote share for each education category across states-year"
+  ) + 
+  theme_classic() +
+  theme(
+    plot.title = element_text(size = 16, hjust = 0.5, margin = margin(0, 0, 20, 0)),
+    plot.caption = element_text(hjust = 0.5, margin = margin(10, 0, 0, 0)),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    strip.text = element_text(size = 10),
+    legend.position = "top"
+  )
+
+ggsave(here("figures/model/income-educ.svg"), width = 12, height = 10)
+ggsave(here("figures/model/income-educ.png"), width = 12, height = 10, dpi = 300)
+```
+
+## Metro-inc
+
+```{r}
+metro_inc <- map2(model_matrices, years, ~poststrat_by("metro", "inc", model_matrix = .x, year = .y)) %>%
+  list_rbind() %>% 
+  mutate(year = as.factor(year)) 
+
+metro_inc %>%
+  ggplot(aes(group = year, color = year)) + 
+  geom_line(aes(x = metro_str, y = pred_all), linewidth = 1, alpha = 0.8) + 
+  geom_hline(aes(yintercept = 0.5), color = "grey80", linewidth = 0.2) +
+  facet_wrap(~inc_str) +
+  scale_color_manual(values = c("#FCBE3A", "#FCA53A", "#FF5C33")) + 
+  scale_y_continuous(labels = scales::label_percent(), breaks = seq(0, 1, 0.5)) + 
+  coord_cartesian(ylim = c(0, 1)) +
+  labs(
+    x = "", y = "", 
+    # title = "Republican vote share for each education category across states-year"
+  ) + 
+  theme_classic() +
+  theme(
+    plot.title = element_text(size = 16, hjust = 0.5, margin = margin(0, 0, 20, 0)),
+    plot.caption = element_text(hjust = 0.5, margin = margin(10, 0, 0, 0)),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    strip.text = element_text(size = 10),
+    legend.position = "top"
+  )
+
+ggsave(here("figures/model/metro-income.svg"), width = 12, height = 10)
+ggsave(here("figures/model/metro-income.png"), width = 12, height = 10, dpi = 300)
+```
+
+
+```{r, fig.width = 8, fig.height = 6}
+metro_inc <- map2(model_matrices, years, ~poststrat_by("metro", "inc", model_matrix = .x, year = .y)) %>%
+  list_rbind() %>% 
+  mutate(year = as.factor(year)) 
+
+metro_inc %>%
+  ggplot(aes(group = year, color = year)) + 
+  geom_line(aes(x = inc_str, y = pred_all), linewidth = 1, alpha = 0.8) + 
+  geom_hline(aes(yintercept = 0.5), color = "grey80", linewidth = 0.2) +
+  facet_wrap(~metro_str, ncol = 2) +
+  scale_color_manual(values = c("#FCBE3A", "#FCA53A", "#FF5C33")) + 
+  scale_y_continuous(labels = scales::label_percent(), breaks = seq(0, 1, 0.5)) + 
+  coord_cartesian(ylim = c(0, 1)) +
+  labs(
+    x = "", y = "", 
+    # title = "Republican vote share for each education category across states-year"
+  ) + 
+  theme_classic() +
+  theme(
+    plot.title = element_text(size = 16, hjust = 0.5, margin = margin(0, 0, 20, 0)),
+    plot.caption = element_text(hjust = 0.5, margin = margin(10, 0, 0, 0)),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    strip.text = element_text(size = 10),
+    legend.position = "top"
+  )
+
+ggsave(here("figures/model/income-metro.svg"), width = 8, height = 6)
+ggsave(here("figures/model/income-metro.png"), width = 8, height = 6, dpi = 300)
+```
+
 
 ## Educ-metro
 
@@ -158,6 +420,39 @@ educ_metro %>%
   geom_line(aes(x = educ_str, y = pred_all), linewidth = 1, alpha = 0.8) + 
   geom_hline(aes(yintercept = 0.5), color = "grey80", linewidth = 0.2) +
   facet_wrap(~metro_str, ncol = 2) +
+  scale_color_manual(values = c("#FCBE3A", "#FCA53A", "#FF5C33")) + 
+  scale_y_continuous(labels = scales::label_percent(), breaks = seq(0, 1, 0.5)) + 
+  coord_cartesian(ylim = c(0, 1)) +
+  labs(
+    x = "", y = "", 
+    # title = "Republican vote share for each education category across states-year"
+  ) + 
+  theme_classic() +
+  theme(
+    plot.title = element_text(size = 16, hjust = 0.5, margin = margin(0, 0, 20, 0)),
+    plot.caption = element_text(hjust = 0.5, margin = margin(10, 0, 0, 0)),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    strip.text = element_text(size = 10),
+    legend.position = "top"
+  )
+
+ggsave(here("figures/model/educ-metro.svg"), width = 12, height = 10)
+ggsave(here("figures/model/educ-metro.png"), width = 12, height = 10, dpi = 300)
+```
+
+## Income-eth
+
+```{r}
+inc_eth <- map2(model_matrices, years, ~poststrat_by("inc", "eth", model_matrix = .x, year = .y)) %>%
+  list_rbind() %>% 
+  mutate(year = as.factor(year)) 
+
+inc_eth %>%
+  ggplot(aes(group = year, color = year)) + 
+  geom_line(aes(x = inc_str, y = pred_all), linewidth = 1, alpha = 0.8) + 
+  geom_hline(aes(yintercept = 0.5), color = "grey80", linewidth = 0.2) +
+  facet_wrap(~eth_str, ncol = 2) +
   scale_color_manual(values = c("#FCBE3A", "#FCA53A", "#FF5C33")) + 
   scale_y_continuous(labels = scales::label_percent(), breaks = seq(0, 1, 0.5)) + 
   coord_cartesian(ylim = c(0, 1)) +
@@ -234,35 +529,6 @@ educ_eth %>%
     legend.position = "top"
   )
 ```
-## Educ-inc
-
-```{r}
-educ_inc <- map2(model_matrices, years, ~poststrat_by("educ", "inc", model_matrix = .x, year = .y)) %>%
-  list_rbind() %>% 
-  mutate(year = as.factor(year)) 
-
-educ_inc %>%
-  ggplot(aes(group = year, color = year)) + 
-  geom_line(aes(x = educ_str, y = pred_all), linewidth = 1, alpha = 0.8) + 
-  geom_hline(aes(yintercept = 0.5), color = "grey80", linewidth = 0.2) +
-  facet_wrap(~inc_str, ncol = 2) +
-  scale_color_manual(values = c("#FCBE3A", "#FCA53A", "#FF5C33")) + 
-  scale_y_continuous(labels = scales::label_percent(), breaks = seq(0, 1, 0.5)) + 
-  coord_cartesian(ylim = c(0, 1)) +
-  labs(
-    x = "", y = "", 
-    # title = "Republican vote share for each education category across states-year"
-  ) + 
-  theme_classic() +
-  theme(
-    plot.title = element_text(size = 16, hjust = 0.5, margin = margin(0, 0, 20, 0)),
-    plot.caption = element_text(hjust = 0.5, margin = margin(10, 0, 0, 0)),
-    panel.grid.major = element_blank(),
-    panel.grid.minor = element_blank(),
-    strip.text = element_text(size = 10),
-    legend.position = "top"
-  )
-```
 
 ## Metro-state
 
@@ -306,36 +572,6 @@ metro_state %>%
 
 ggsave(here("figures/metro-state.svg"), width = 12, height = 10)
 ggsave(here("figures/metro-state.png"), width = 12, height = 10, dpi = 300)
-```
-
-## Metro-inc
-
-```{r}
-metro_inc <- map2(model_matrices, years, ~poststrat_by("metro", "inc", model_matrix = .x, year = .y)) %>%
-  list_rbind() %>% 
-  mutate(year = as.factor(year)) 
-
-metro_inc %>%
-  ggplot(aes(group = year, color = year)) + 
-  geom_line(aes(x = metro_str, y = pred_all), linewidth = 1, alpha = 0.8) + 
-  geom_hline(aes(yintercept = 0.5), color = "grey80", linewidth = 0.2) +
-  facet_wrap(~inc_str, ncol = 2) +
-  scale_color_manual(values = c("#FCBE3A", "#FCA53A", "#FF5C33")) + 
-  scale_y_continuous(labels = scales::label_percent(), breaks = seq(0, 1, 0.5)) + 
-  coord_cartesian(ylim = c(0, 1)) +
-  labs(
-    x = "", y = "", 
-    # title = "Republican vote share for each education category across states-year"
-  ) + 
-  theme_classic() +
-  theme(
-    plot.title = element_text(size = 16, hjust = 0.5, margin = margin(0, 0, 20, 0)),
-    plot.caption = element_text(hjust = 0.5, margin = margin(10, 0, 0, 0)),
-    panel.grid.major = element_blank(),
-    panel.grid.minor = element_blank(),
-    strip.text = element_text(size = 10),
-    legend.position = "top"
-  )
 ```
 
 ## Metro-educ
@@ -425,46 +661,6 @@ metro_age %>%
     legend.position = "top"
   )
 ```
-## Income-state
-
-```{r}
-income_state <- map2(model_matrices, years, ~poststrat_by("inc", "stt", model_matrix = .x, year = .y)) %>% 
-  list_rbind() %>% 
-  left_join(stt_dict, by = c("stt" = "stt")) %>%
-  filter(!state_abbr %in% c("AK", "HI", "DC")) %>%
-  left_join(states_data %>% dplyr::select(state_abbr, rep_votes), by = c("state_abbr" = "state_abbr")) %>% 
-  mutate(state_name = fct_reorder(state_name, rep_votes, .desc = TRUE)) %>% 
-  mutate(year = as.factor(year)) 
-
-income_state %>%
-  ggplot(aes(group = year, color = year)) + 
-  geom_line(aes(x = inc, y = pred_all), linewidth = 1, alpha = 0.8) + 
-  geom_hline(aes(yintercept = 0.5), color = "grey80", linewidth = 0.2) +
-  facet_wrap(~state_name, ncol = 8) + 
-  scale_x_discrete(labels = c("poor", "", "mid", "", "rich")) +
-  scale_color_manual(values = c("#FCBE3A", "#FCA53A", "#FF5C33")) + 
-  scale_y_continuous(labels = scales::label_percent(), breaks = seq(0, 1, 0.5)) + 
-  coord_cartesian(ylim = c(0, 1)) +
-  labs(
-    x = "", y = "", 
-    # title = "Republican vote share for each income category across states-year"
-    ) + 
-  theme_classic() +
-  theme(
-    plot.title = element_text(size = 16, hjust = 0.5, margin = margin(0, 0, 20, 0)),
-    plot.caption = element_text(hjust = 0.5, margin = margin(10, 0, 0, 0)),
-    panel.grid.major = element_blank(),
-    panel.grid.minor = element_blank(),
-    strip.text = element_text(size = 12),
-    legend.position = "top",
-    legend.text = element_text(size = 14),
-    legend.title = element_text(size = 14)
-  )
-
-
-ggsave(here("figures/income-state.svg"), width = 12, height = 10)
-ggsave(here("figures/income-state.png"), width = 12, height = 10, dpi = 300)
-```
 
 ## Income-age
 
@@ -496,76 +692,7 @@ inc_age %>%
   )
 ```
 
-## Income-eth
-
-```{r}
-inc_eth <- map2(model_matrices, years, ~poststrat_by("inc", "eth", model_matrix = .x, year = .y)) %>%
-  list_rbind() %>% 
-  mutate(year = as.factor(year)) 
-
-inc_eth %>%
-  ggplot(aes(group = year, color = year)) + 
-  geom_line(aes(x = inc_str, y = pred_all), linewidth = 1, alpha = 0.8) + 
-  geom_hline(aes(yintercept = 0.5), color = "grey80", linewidth = 0.2) +
-  facet_wrap(~eth_str, ncol = 2) +
-  scale_color_manual(values = c("#FCBE3A", "#FCA53A", "#FF5C33")) + 
-  scale_y_continuous(labels = scales::label_percent(), breaks = seq(0, 1, 0.5)) + 
-  coord_cartesian(ylim = c(0, 1)) +
-  labs(
-    x = "", y = "", 
-    # title = "Republican vote share for each education category across states-year"
-  ) + 
-  theme_classic() +
-  theme(
-    plot.title = element_text(size = 16, hjust = 0.5, margin = margin(0, 0, 20, 0)),
-    plot.caption = element_text(hjust = 0.5, margin = margin(10, 0, 0, 0)),
-    panel.grid.major = element_blank(),
-    panel.grid.minor = element_blank(),
-    strip.text = element_text(size = 10),
-    legend.position = "top"
-  )
-```
-
-## Income-year
-
-```{r, fig.width = 10, fig.height = 10}
-poststrat_by_income_year <- function(model_matrix, year) {
-  year_pop_column <- paste0("wtpop", year)
-  poststrat_data %>%
-  mutate(grp = apply(.[, c("stt", "eth", "inc", "age", "educ", "metro")], 1, paste, collapse = "_")) %>%
-  group_by(grp) %>%
-  summarise(
-    pop = sum(!!sym(year_pop_column), na.rm = TRUE),
-  ) %>%
-  right_join(model_matrix$data_matrix, by = "grp") %>%
-  arrange(ix) %>% 
-  mutate(pred = colMeans(model_matrix$pred)) %>%
-  group_by(year, inc) %>%
-  summarise(
-    pred_all = sum(pred * pop, na.rm = TRUE) / sum(pop, na.rm = TRUE)
-  ) %>% 
-  ungroup()
-}
-
-income_year <- map2(model_matrices, years, ~poststrat_by("inc", "year", .x, .y)) %>% 
-  list_rbind() %>% 
-  mutate(year = as.factor(year), 
-         pred_rep = pred_all, 
-         pred_dem = 1 - pred_rep, 
-         diff = pred_dem - pred_rep) 
-
-income_year %>% 
-  ggplot(aes(x = inc, y = pred_rep, color = year, group = year)) + 
-  geom_line(linewidth = 1, alpha = 0.8) + 
-  geom_point() + 
-  # labs(x = "", y = "Dem - Rep") + 
-  # scale_x_discrete(labels = c("poor", "", "mid", "", "rich")) +
-  scale_y_continuous(labels = scales::label_percent())
-```
-
 ## Age-state
-
-What should we do in poststratification step if one of the subgroups has 0 population? In this case, I want to plot how urban and rural differs in each state across years. However, states, such as Rhode Island and New Jersey does not have rural population (based on the IPUMS data). Is it acceptable to use raw prediction from the model without poststratification? 
 
 ```{r, fig.width = 10, fig.height = 10}
 age_state <- map2(model_matrices, years, ~poststrat_by("age", "stt", model_matrix = .x, year = .y)) %>%
@@ -680,3 +807,15 @@ for (i in 1:nrow(combinations)) {
 }
 ```
 
+```{r, fig.width = 10, fig.height = 7}
+# Assuming each model matrix in model_matrices contains a 'model' object for the MCMC
+plots <- map2(model_matrices, years, ~ {
+  rhat_values <- bayesplot::rhat(.x$model)
+  plot <- bayesplot::mcmc_rhat_hist(rhat_values) + 
+    ggtitle(paste("Rhat diagnostic for election model", .y))
+  return(plot)
+})
+
+# patchwork::wrap_plots(plots, ncol = 2, guides = "collect")
+# ggsave(here("figures/rhat.png"), width = 10, height = 7, dpi = 300)
+```
