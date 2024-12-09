@@ -235,7 +235,7 @@ educ_inc <- map2(data_matrices, years, ~poststrat_by("educ", "inc", data_matrix 
 educ_inc %>%
   ggplot(aes(group = year)) +
   geom_line(aes(x = inc_str, y = vote_all), linewidth = 1, alpha = 0.8, color = "grey") + 
-  geom_line(aes(x = inc_str, y = pred_white), linewidth = 1, alpha = 0.8, color = "orange") +
+  geom_line(aes(x = inc_str, y = vote_white), linewidth = 1, alpha = 0.8, color = "orange") +
   geom_hline(aes(yintercept = 0.5), color = "grey80", linewidth = 0.2) +
   facet_grid(vars(year), vars(educ_str)) + 
   scale_color_manual(values = c("#FCBE3A", "#FCA53A", "#FF5C33")) + 
@@ -270,7 +270,7 @@ metro_inc <- map2(data_matrices, years, ~poststrat_by("metro", "inc", data_matri
 metro_inc %>%
   ggplot(aes(group = year)) +
   geom_line(aes(x = inc_str, y = vote_all), linewidth = 1, alpha = 0.8, color = "grey") + 
-  geom_line(aes(x = inc_str, y = pred_white), linewidth = 1, alpha = 0.8, color = "orange") +
+  geom_line(aes(x = inc_str, y = vote_white), linewidth = 1, alpha = 0.8, color = "orange") +
   geom_hline(aes(yintercept = 0.5), color = "grey80", linewidth = 0.2) +
   facet_grid(vars(year), vars(metro_str)) + 
   scale_color_manual(values = c("#FCBE3A", "#FCA53A", "#FF5C33")) + 
@@ -305,7 +305,7 @@ metro_educ <- map2(data_matrices, years, ~poststrat_by("metro", "educ", data_mat
 metro_educ %>%
   ggplot(aes(group = year)) +
   geom_line(aes(x = educ_str, y = vote_all), linewidth = 1, alpha = 0.8, color = "grey") + 
-  geom_line(aes(x = educ_str, y = pred_white), linewidth = 1, alpha = 0.8, color = "orange") +
+  geom_line(aes(x = educ_str, y = vote_white), linewidth = 1, alpha = 0.8, color = "orange") +
   geom_hline(aes(yintercept = 0.5), color = "grey80", linewidth = 0.2) +
   facet_grid(vars(year), vars(metro_str)) + 
   scale_color_manual(values = c("#FCBE3A", "#FCA53A", "#FF5C33")) + 
