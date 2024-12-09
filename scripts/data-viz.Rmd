@@ -26,6 +26,8 @@ poststrat_data <- read_csv(here("data/census-pums-pop.csv"))
 ```
 
 ```{r}
+COVARIATES <- c("stt", "eth", "inc", "age", "educ", "metro")
+
 get_label <- function(col_name) {
   label <- switch(col_name,
     eth = eth.label,
@@ -51,27 +53,33 @@ map_label <- function(col) {
   fct_relevel(result, label)
 }
 
-poststrat_by <- function(..., model_matrix, year) {
-  vars <- c(...)
+create_adjusted_data_matrix <- function(model_matrix, poststrat_data = NULL) {
+  year <- model_matrix$data_matrix$year[1]
   year_pop_column <- paste0("wtpop", year)
+
+  data_matrix <- model_matrix$data_matrix %>%
+    mutate(pred = colMeans(model_matrix$pred))
+  
   poststrat_data %>%
-    mutate(grp = apply(.[, c("stt", "eth", "inc", "age", "educ", "metro")], 1, paste, collapse = "_")) %>%
-    group_by(grp) %>%
-    summarise(
-      pop = sum(!!sym(year_pop_column), na.rm = TRUE)
-    ) %>%
-    right_join(model_matrix$data_matrix, by = "grp") %>%
-    arrange(ix) %>% 
-    mutate(pred = colMeans(model_matrix$pred)) %>% 
+    mutate(grp = apply(.[, COVARIATES], 1, paste, collapse = "_"),
+           pop = year_pop_column) %>% 
+    dplyr::select(grp, pop = !!year_pop_column) %>% 
+    right_join(data_matrix, by = "grp")
+}
+
+poststrat_by <- function(..., data_matrix, year) {
+  vars <- c(...)
+  
+  data_matrix %>% 
     group_by(across(all_of(c("year", vars)))) %>%
     summarise(
       pred_all = sum(pred * pop, na.rm = TRUE) / sum(pop, na.rm = TRUE),
       pred_white = sum(pred[eth == 1] * pop[eth == 1], na.rm = TRUE) / sum(pop[eth == 1], na.rm = TRUE),
       se_all = sqrt((pred_all * (1 - pred_all)) / sum(n)),
-      se_white = sqrt((pred_white * (1 - pred_white)) / sum(n[eth == 1]))
+      se_white = sqrt((pred_white * (1 - pred_white)) / sum(n[eth == 1])), 
+      .groups = "drop"
     ) %>%
-    ungroup() %>% 
-    mutate(across(is.factor, map_label, .names = "{.col}_str"))
+        mutate(across(is.factor, map_label, .names = "{.col}_str"))
 }
 ```
 
@@ -86,7 +94,10 @@ model_matrix_2020 <- readRDS("../data/model/second-iteration/model_matrix_comple
 model_matrix_2020$pred <- readRDS("../data/model/second-iteration/pred_complete-2020-formula_level_4.rds")
 
 model_matrices <- list(model_matrix_2012, model_matrix_2016, model_matrix_2020)
+rm(model_matrix_2012, model_matrix_2016, model_matrix_2020)
+
 years <- c(2012, 2016, 2020)
+data_matrices <- map(model_matrices, create_adjusted_data_matrix, poststrat_data = poststrat_data)
 
 # Solely for sorting the state facet map
 states_data <- process_states_data(states_election_data, states_pop_income_data, 2012)
@@ -95,7 +106,7 @@ states_data <- process_states_data(states_election_data, states_pop_income_data,
 ## Income-state
 
 ```{r, fig.width = 10, fig.height = 10}
-income_state <- map2(model_matrices, years, ~poststrat_by("inc", "stt", model_matrix = .x, year = .y)) %>% 
+income_state <- map2(data_matrices, years, ~ poststrat_by("inc", "stt", data_matrix = .x, year = .y)) %>%
   list_rbind() %>% 
   left_join(stt_dict, by = c("stt" = "stt")) %>%
   filter(!state_abbr %in% c("AK", "HI", "DC")) %>%
