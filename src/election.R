@@ -13,6 +13,7 @@ source(here("src/helpers.R"))
 
 # Define constants
 reg.lkup <- c(3, 4, 4, 3, 4, 4, 1, 1, 5, 3, 3, 4, 4, 2, 2, 2, 2, 3, 3, 1, 1, 1, 2, 2, 3, 2, 4, 2, 4, 1, 1, 4, 1, 3, 2, 2, 3, 4, 1, 1, 3, 2, 3, 3, 4, 1, 3, 4, 1, 2, 4)
+reg.label <- c("Northeast", "Midwest", "South", "West", "DC")
 stt.label <- c(state.name[1:8], "DC", state.name[9:50])
 stt.abb.label <- c(state.abb[1:8], "DC", state.abb[9:50])
 eth.label <- c("White", "Black", "Hispanic", "Other")
@@ -22,21 +23,25 @@ sex.label <- c("Male", "Female")
 educ.label <- c("< HS", "HS", "Some College", "College", "Post-Grad")
 metro.label <- c("Rural", "Suburban", "Urban")
 
+state_encoder <- setNames(1:51, c(state.name[1:8], "DC", state.name[9:50]))
+region_encoder <- setNames(reg.label, 1:5)
+
 # Create state dictionary
 stt_dict <- data.frame(
-  state_name = stt.label, state_abbr = stt.abb.label, stt = factor(1:51)
+  state_name = stt.label, state_abbr = stt.abb.label, stt = factor(1:51), 
+  region = factor(reg.lkup), region_name = region_encoder[reg.lkup]
 )
-state_encoder <- setNames(1:51, c(state.name[1:8], "DC", state.name[9:50]))
 
 # Function to process states data
 process_states_data <- function(states_election_data, states_pop_income_data, year) {
   states_election <- states_election_data %>%
-    dplyr::filter(party_detailed %in% c("DEMOCRAT", "REPUBLICAN"), year > 2000) %>%
-    dplyr::group_by(year, state, state_abbr = state_po, party_detailed, totalvotes) %>%
+    dplyr::filter(party_simplified %in% c("DEMOCRAT", "REPUBLICAN"), year > 2000) %>%
+    dplyr::group_by(year, state, state_abbr = state_po, party_simplified, totalvotes) %>%
     dplyr::summarise(votes = sum(candidatevotes), .groups = "drop") %>%
-    tidyr::pivot_wider(names_from = party_detailed, values_from = votes, values_fill = list(votes = 0)) %>%
-    dplyr::rename(dem_votes = DEMOCRAT, rep_votes = REPUBLICAN) %>%
-    dplyr::mutate(dem_votes = dem_votes / totalvotes, rep_votes = rep_votes / totalvotes)
+    tidyr::pivot_wider(names_from = party_simplified, values_from = votes, values_fill = list(votes = 0)) %>%
+    dplyr::rename(dem_raw_votes = DEMOCRAT, rep_raw_votes = REPUBLICAN) %>% 
+    dplyr::mutate(dem_votes = dem_raw_votes / (dem_raw_votes + rep_raw_votes),
+                  rep_votes = rep_raw_votes / (dem_raw_votes + rep_raw_votes))
 
   states_data <- states_election %>%
     dplyr::left_join(states_pop_income_data, by = c("state", "year")) %>%
@@ -173,11 +178,9 @@ process_ipums_data <- function(ipums_data, year) {
       ),
       state = as_factor(STATEFIP),
       state = if_else(state == "District of Columbia", "DC", state),
-      state = factor(state_encoder[state]),
-      sex = as_factor(SEX, levels = "values")
+      state = factor(state_encoder[state])
     ) %>%
-    dplyr::group_by(sex,
-      age = age_group, eth = race, educ = educ_group,
+    dplyr::group_by(age = age_group, eth = race, educ = educ_group,
       inc = income_group, metro, stt = state
     ) %>%
     dplyr::summarise(
@@ -197,7 +200,6 @@ generate_poststratification_data <- function() {
 
   expand.grid(
     year = years,
-    sex = factor(1:length(sex.label)),
     age = factor(1:length(age.label)),
     eth = factor(1:length(eth.label)),
     educ = factor(1:length(educ.label)),
@@ -205,7 +207,7 @@ generate_poststratification_data <- function() {
     stt = factor(1:length(stt.label)),
     metro = factor(1:length(metro.label))
   ) %>%
-    dplyr::left_join(list_rbind(dfs), by = c("sex", "age", "eth", "educ", "inc", "metro", "stt", "year")) %>%
+    dplyr::left_join(list_rbind(dfs), by = c("age", "eth", "educ", "inc", "metro", "stt", "year")) %>%
     dplyr::mutate(
       pop = replace_na(pop, 0),
       wtpop = replace_na(wtpop, 0)

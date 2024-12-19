@@ -44,7 +44,8 @@ metro.label <- c("Rural", "Suburban", "Urban")
 
 # Create state dictionary
 stt_dict <- data.frame(
-  state_name = stt.label, state_abbr = stt.abb.label, stt = factor(1:51)
+  state_name = stt.label, state_abbr = stt.abb.label, stt = factor(1:51), 
+  region = reg.lkup
 )
 
 # COLORS <- c("#fdbb84", "#fc8d59", "#e34a33", "#b30000")
