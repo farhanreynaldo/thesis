@@ -16,6 +16,7 @@ library(usmap)
 library(sf)
 library(tidyverse)
 library(here)
+library(ggrepel)
 
 source(here::here("src/theme.R"))
 source(here::here("src/load_data.R"))
@@ -27,7 +28,11 @@ poststrat_data <- read_csv(here("data/census-pums-pop.csv"))
 
 ```{r}
 COVARIATES <- c("stt", "eth", "inc", "age", "educ", "metro")
+COLORS <- c("#fdbb84", "#fc8d59", "#e34a33", "#b30000")
+```
 
+
+```{r}
 get_label <- function(col_name) {
   label <- switch(col_name,
     eth = eth.label,
@@ -56,9 +61,14 @@ map_label <- function(col) {
 create_adjusted_data_matrix <- function(model_matrix, poststrat_data = NULL) {
   year <- model_matrix$data_matrix$year[1]
   year_pop_column <- paste0("wtpop", year)
+  
+  states_data <- process_states_data(states_election_data, states_pop_income_data, year) %>%
+    dplyr::select(state, region, region_name, dem_votes, rep_votes)
 
   data_matrix <- model_matrix$data_matrix %>%
-    mutate(pred = colMeans(model_matrix$pred))
+    mutate(pred = colMeans(model_matrix$pred)) %>% 
+    dplyr::select(-c(dem_votes, rep_votes)) %>% 
+    left_join(states_data, join_by(state))
 
   poststrat_data %>%
     mutate(
@@ -86,8 +96,10 @@ poststrat_by <- function(..., data_matrix, year) {
     summarise(
       vote_all = sum(vote * pop, na.rm = TRUE) / sum(pop, na.rm = TRUE),
       vote_white = sum(vote[eth == 1] * pop[eth == 1], na.rm = TRUE) / sum(pop[eth == 1], na.rm = TRUE),
+      vote_non_white = sum(vote[eth != 1] * pop[eth != 1], na.rm = TRUE) / sum(pop[eth != 1], na.rm = TRUE),
       se_all = sqrt((vote_all * (1 - vote_all)) / sum(n)),
       se_white = sqrt((vote_white * (1 - vote_white)) / sum(n[eth == 1])),
+      total_pop = sum(pop),
       .groups = "drop"
     ) %>%
     mutate(across(is.factor, map_label, .names = "{.col}_str"))
@@ -95,6 +107,9 @@ poststrat_by <- function(..., data_matrix, year) {
 ```
 
 ```{r}
+model_matrix_2008 <- readRDS("../data/model/second-iteration/model_matrix_complete-2008-formula_level_4.rds")
+model_matrix_2008$pred <- readRDS("../data/model/second-iteration/pred_complete-2008-formula_level_4.rds")
+
 model_matrix_2012 <- readRDS("../data/model/second-iteration/model_matrix_complete-2012-formula_level_4.rds")
 model_matrix_2012$pred <- readRDS("../data/model/second-iteration/pred_complete-2012-formula_level_4.rds")
 
@@ -104,14 +119,14 @@ model_matrix_2016$pred <- readRDS("../data/model/second-iteration/pred_complete-
 model_matrix_2020 <- readRDS("../data/model/second-iteration/model_matrix_complete-2020-formula_level_4.rds")
 model_matrix_2020$pred <- readRDS("../data/model/second-iteration/pred_complete-2020-formula_level_4.rds")
 
-model_matrices <- list(model_matrix_2012, model_matrix_2016, model_matrix_2020)
-rm(model_matrix_2012, model_matrix_2016, model_matrix_2020)
+model_matrices <- list(model_matrix_2008, model_matrix_2012, model_matrix_2016, model_matrix_2020)
+rm(model_matrix_2008, model_matrix_2012, model_matrix_2016, model_matrix_2020)
 
-years <- c(2012, 2016, 2020)
+years <- c(2008, 2012, 2016, 2020)
 data_matrices <- map(model_matrices, create_adjusted_data_matrix, poststrat_data = poststrat_data)
 
 # Solely for sorting the state facet map
-states_data <- process_states_data(states_election_data, states_pop_income_data, 2012)
+states_data <- process_states_data(states_election_data, states_pop_income_data, 2008)
 ```
 
 ## Income-state
@@ -130,13 +145,11 @@ income_state %>%
   geom_line(aes(x = inc, y = vote_all), linewidth = 1, alpha = 0.8) +
   geom_hline(aes(yintercept = 0.5), color = "grey80", linewidth = 0.2) +
   facet_wrap(~state_name, ncol = 8) +
-  scale_x_discrete(labels = c("poor", "", "mid", "", "rich")) +
-  scale_color_manual(values = c("#FCBE3A", "#FCA53A", "#FF5C33")) +
+  scale_x_discrete(labels = c("Poor", "", "Mid", "", "Rich")) +
+  scale_color_manual(values = COLORS) +
   scale_y_continuous(labels = scales::label_percent(), breaks = seq(0, 1, 0.5)) +
   coord_cartesian(ylim = c(0, 1)) +
-  labs(
-    x = "", y = "",
-  ) +
+  labs(x = "", y = "") +
   theme_classic() +
   theme(
     plot.title = element_text(size = 16, hjust = 0.5, margin = margin(0, 0, 20, 0)),
@@ -150,9 +163,10 @@ income_state %>%
   )
 
 
-ggsave(here("figures/model/income-state.svg"), width = 12, height = 10)
-ggsave(here("figures/model/income-state.png"), width = 12, height = 10, dpi = 300)
+# ggsave(here("figures/model/income-state.svg"), width = 10, height = 10)
+ggsave(here("figures/model/income-state.png"), width = 10, height = 10, dpi = 300)
 ```
+
 ## Educ-state
 
 ```{r, fig.width = 10, fig.height = 10}
@@ -169,13 +183,11 @@ educ_state %>%
   geom_line(aes(x = educ, y = vote_all), linewidth = 1, alpha = 0.8) +
   geom_hline(aes(yintercept = 0.5), color = "grey80", linewidth = 0.2) +
   facet_wrap(~state_name, ncol = 7) +
-  scale_color_manual(values = c("#FCBE3A", "#FCA53A", "#FF5C33")) +
-  scale_x_discrete(labels = c("<HS", "", "", "", "Postgrad")) +
+  scale_color_manual(values = COLORS) +
+  scale_x_discrete(labels = c("<HS", "", "Mid", "", "Postgrad")) +
   scale_y_continuous(labels = scales::label_percent(), breaks = seq(0, 1, 0.5)) +
   coord_cartesian(ylim = c(0, 1)) +
-  labs(
-    x = "", y = "",
-  ) +
+  labs(x = "", y = "") +
   theme_classic() +
   theme(
     plot.title = element_text(size = 16, hjust = 0.5, margin = margin(0, 0, 20, 0)),
@@ -185,12 +197,11 @@ educ_state %>%
     strip.text = element_text(size = 10),
     legend.position = "top",
     legend.text = element_text(size = 14),
-    legend.title = element_text(size = 14),
-    axis.text.x = element_text(size = 7)
+    legend.title = element_text(size = 14)
   )
 
-ggsave(here("figures/model/educ-state.svg"), width = 12, height = 10)
-ggsave(here("figures/model/educ-state.png"), width = 12, height = 10, dpi = 300)
+# ggsave(here("figures/model/educ-state.svg"), width = 10, height = 10)
+ggsave(here("figures/model/educ-state.png"), width = 10, height = 10, dpi = 300)
 ```
 
 ## Educ-inc
@@ -205,12 +216,11 @@ educ_inc %>%
   geom_line(aes(x = educ_str, y = vote_all), linewidth = 1, alpha = 0.8) +
   geom_hline(aes(yintercept = 0.5), color = "grey80", linewidth = 0.2) +
   facet_wrap(~inc_str) +
-  scale_color_manual(values = c("#FCBE3A", "#FCA53A", "#FF5C33")) +
+  scale_color_manual(values = COLORS) +
+  scale_x_discrete(labels = c("<HS", "", "Mid", "", "Postgrad")) +
   scale_y_continuous(labels = scales::label_percent(), breaks = seq(0, 1, 0.5)) +
   coord_cartesian(ylim = c(0, 1)) +
-  labs(
-    x = "", y = "",
-  ) +
+  labs(x = "", y = "") +
   theme_classic() +
   theme(
     plot.title = element_text(size = 16, hjust = 0.5, margin = margin(0, 0, 20, 0)),
@@ -221,113 +231,239 @@ educ_inc %>%
     legend.position = "top"
   )
 
-ggsave(here("figures/model/educ-state.svg"), width = 12, height = 10)
-ggsave(here("figures/model/educ-state.png"), width = 12, height = 10, dpi = 300)
+# ggsave(here("figures/model/inc-educ.svg"), width = 8, height = 6)
+ggsave(here("figures/model/inc-educ.png"), width = 8, height = 6, dpi = 300)
 ```
 
-## Educ-inc-eth
+```{r}
+educ_inc %>%
+  ggplot(aes(group = year, color = year)) +
+  geom_line(aes(x = inc_str, y = vote_all), linewidth = 1, alpha = 0.8) +
+  geom_hline(aes(yintercept = 0.5), color = "grey80", linewidth = 0.2) +
+  facet_wrap(~educ_str) +
+  scale_color_manual(values = COLORS) +
+  scale_x_discrete(labels = c("Poor", "", "Mid", "", "Rich")) +
+  scale_y_continuous(labels = scales::label_percent(), breaks = seq(0, 1, 0.5)) +
+  coord_cartesian(ylim = c(0, 1)) +
+  labs(x = "", y = "") +
+  theme_classic() +
+  theme(
+    plot.title = element_text(size = 16, hjust = 0.5, margin = margin(0, 0, 20, 0)),
+    plot.caption = element_text(hjust = 0.5, margin = margin(10, 0, 0, 0)),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    strip.text = element_text(size = 10),
+    legend.position = "top"
+  )
 
-```{r, width = 12, height = 8}
+```
+
+
+## Inc-educ-year
+
+```{r, width = 8, height = 6}
+educ_inc <- map2(data_matrices, years, ~ poststrat_by("educ", "inc", data_matrix = .x, year = .y)) %>%
+  list_rbind() %>%
+  mutate(year = as.factor(year))
+
+educ_inc %>%
+  ggplot(aes(group = inc_str, color = inc_str)) +
+  geom_line(aes(x = year, y = vote_all), linewidth = 1, alpha = 0.8) +
+  geom_hline(aes(yintercept = 0.5), color = "grey80", linewidth = 0.2) +
+  facet_wrap(~educ_str) + 
+  scale_y_continuous(labels = scales::label_percent(), breaks = seq(0, 1, 0.5)) +
+  coord_cartesian(ylim = c(0, 1)) +
+  labs(x = "", y = "") +
+  theme_classic() +
+  theme(
+    plot.title = element_text(size = 16, hjust = 0.5, margin = margin(0, 0, 20, 0)),
+    plot.caption = element_text(hjust = 0.5, margin = margin(10, 0, 0, 0)),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    strip.text = element_text(size = 10),
+    legend.position = "top"
+  )
+```
+
+## Inc-educ-eth
+
+```{r, width = 8, height = 8}
 educ_inc <- map2(data_matrices, years, ~ poststrat_by("educ", "inc", data_matrix = .x, year = .y)) %>%
   list_rbind() %>%
   mutate(year = as.factor(year))
 
 educ_inc %>%
   ggplot(aes(group = year)) +
-  geom_line(aes(x = inc_str, y = vote_all), linewidth = 1, alpha = 0.8, color = "grey") +
-  geom_line(aes(x = inc_str, y = vote_white), linewidth = 1, alpha = 0.8, color = "orange") +
+  geom_line(aes(x = inc_str, y = vote_non_white, color = "grey"), linewidth = 1, alpha = 0.8) +
+  geom_line(aes(x = inc_str, y = vote_white, color = "#FCA53A"), linewidth = 1, alpha = 0.8) +
   geom_hline(aes(yintercept = 0.5), color = "grey80", linewidth = 0.2) +
   facet_grid(vars(year), vars(educ_str)) +
-  scale_color_manual(values = c("#FCBE3A", "#FCA53A", "#FF5C33")) +
+  scale_x_discrete(labels = c("Poor", "", "Mid", "", "Rich")) +
   scale_y_continuous(labels = scales::label_percent(), breaks = seq(0, 1, 0.5)) +
-  coord_cartesian(ylim = c(0, 1)) +
-  labs(
-    x = "", y = "",
+  scale_color_identity(
+    name = "",
+    breaks = c("grey", "#FCA53A"),
+    labels = c("Non-white", "White"),
+    guide = "legend"
   ) +
+  coord_cartesian(ylim = c(0, 1)) +
+  labs(x = "", y = "") +
   theme_classic() +
   theme(
     plot.title = element_text(size = 16, hjust = 0.5, margin = margin(0, 0, 20, 0)),
     plot.caption = element_text(hjust = 0.5, margin = margin(10, 0, 0, 0)),
     panel.grid.major = element_blank(),
     panel.grid.minor = element_blank(),
-    strip.text = element_text(size = 7),
-    axis.text.x = element_text(size = 5),
     legend.position = "top"
   )
 
-ggsave(here("figures/model/inc-educ-eth.svg"), width = 8, height = 6)
+# ggsave(here("figures/model/inc-educ-eth.svg"), width = 8, height = 6)
 ggsave(here("figures/model/inc-educ-eth.png"), width = 8, height = 6, dpi = 300)
 ```
 
-## metro-inc-eth
+```{r, width = 8, height = 8}
+educ_inc <- map2(data_matrices, years, ~ poststrat_by("educ", "inc", data_matrix = .x, year = .y)) %>%
+  list_rbind() %>%
+  mutate(year = as.factor(year))
 
-```{r}
+educ_inc %>%
+  ggplot(aes(group = year)) +
+  geom_line(aes(x = educ_str, y = vote_non_white, color = "grey"), linewidth = 1, alpha = 0.8) +
+  geom_line(aes(x = educ_str, y = vote_white, color = "#FCA53A"), linewidth = 1, alpha = 0.8) +
+  geom_hline(aes(yintercept = 0.5), color = "grey80", linewidth = 0.2) +
+  facet_grid(vars(year), vars(inc_str)) +
+  scale_x_discrete(labels = c("<HS", "", "Mid", "", "Postgrad")) +
+  scale_y_continuous(labels = scales::label_percent(), breaks = seq(0, 1, 0.5)) +
+  scale_color_identity(
+    name = "",
+    breaks = c("grey", "#FCA53A"),
+    labels = c("Non-white", "White"),
+    guide = "legend"
+  ) +
+  coord_cartesian(ylim = c(0, 1)) +
+  labs(x = "", y = "") +
+  theme_classic() +
+  theme(
+    plot.title = element_text(size = 16, hjust = 0.5, margin = margin(0, 0, 20, 0)),
+    plot.caption = element_text(hjust = 0.5, margin = margin(10, 0, 0, 0)),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    legend.position = "top"
+  )
+
+# ggsave(here("figures/model/inc-educ-eth.svg"), width = 8, height = 6)
+ggsave(here("figures/model/educ-inc-eth.png"), width = 8, height = 6, dpi = 300)
+```
+
+## Inc-metro-eth
+
+```{r, width = 8, height = 6}
 metro_inc <- map2(data_matrices, years, ~ poststrat_by("metro", "inc", data_matrix = .x, year = .y)) %>%
   list_rbind() %>%
   mutate(year = as.factor(year))
 
 metro_inc %>%
   ggplot(aes(group = year)) +
-  geom_line(aes(x = inc_str, y = vote_all), linewidth = 1, alpha = 0.8, color = "grey") +
-  geom_line(aes(x = inc_str, y = vote_white), linewidth = 1, alpha = 0.8, color = "orange") +
+  geom_line(aes(x = inc_str, y = vote_non_white, color = "grey"), linewidth = 1, alpha = 0.8) +
+  geom_line(aes(x = inc_str, y = vote_white, color = "#FCA53A"), linewidth = 1, alpha = 0.8) +
   geom_hline(aes(yintercept = 0.5), color = "grey80", linewidth = 0.2) +
   facet_grid(vars(year), vars(metro_str)) +
-  scale_color_manual(values = c("#FCBE3A", "#FCA53A", "#FF5C33")) +
+  scale_x_discrete(labels = c("Poor", "", "Mid", "", "Rich")) +
   scale_y_continuous(labels = scales::label_percent(), breaks = seq(0, 1, 0.5)) +
-  coord_cartesian(ylim = c(0, 1)) +
-  labs(
-    x = "", y = "",
+  scale_color_identity(
+    name = "",
+    breaks = c("grey", "#FCA53A"),
+    labels = c("Non-white", "White"),
+    guide = "legend"
   ) +
+  coord_cartesian(ylim = c(0, 1)) +
+  labs(x = "", y = "") +
   theme_classic() +
   theme(
     plot.title = element_text(size = 16, hjust = 0.5, margin = margin(0, 0, 20, 0)),
     plot.caption = element_text(hjust = 0.5, margin = margin(10, 0, 0, 0)),
     panel.grid.major = element_blank(),
     panel.grid.minor = element_blank(),
-    strip.text = element_text(size = 7),
-    axis.text.x = element_text(size = 5),
     legend.position = "top"
   )
 
-ggsave(here("figures/model/inc-metro-eth.svg"), width = 8, height = 6)
 ggsave(here("figures/model/inc-metro-eth.png"), width = 8, height = 6, dpi = 300)
 ```
 
 ## metro-educ-eth
 
-```{r}
+```{r, width = 8, height = 6}
 metro_educ <- map2(data_matrices, years, ~ poststrat_by("metro", "educ", data_matrix = .x, year = .y)) %>%
   list_rbind() %>%
   mutate(year = as.factor(year))
 
 metro_educ %>%
   ggplot(aes(group = year)) +
-  geom_line(aes(x = educ_str, y = vote_all), linewidth = 1, alpha = 0.8, color = "grey") +
-  geom_line(aes(x = educ_str, y = vote_white), linewidth = 1, alpha = 0.8, color = "orange") +
+  geom_line(aes(x = educ_str, y = vote_non_white, color = "grey"), linewidth = 1, alpha = 0.8) +
+  geom_line(aes(x = educ_str, y = vote_white, color = "#FCA53A"), linewidth = 1, alpha = 0.8) +
   geom_hline(aes(yintercept = 0.5), color = "grey80", linewidth = 0.2) +
   facet_grid(vars(year), vars(metro_str)) +
-  scale_color_manual(values = c("#FCBE3A", "#FCA53A", "#FF5C33")) +
+  scale_x_discrete(labels = c("<HS", "", "Mid", "", "Postgrad")) +
+  scale_color_identity(
+    name = "",
+    breaks = c("grey", "#FCA53A"),
+    labels = c("Non-white", "White"),
+    guide = "legend"
+  ) +
   scale_y_continuous(labels = scales::label_percent(), breaks = seq(0, 1, 0.5)) +
   coord_cartesian(ylim = c(0, 1)) +
-  labs(
-    x = "", y = "",
-  ) +
+  labs(x = "", y = "") +
   theme_classic() +
   theme(
     plot.title = element_text(size = 16, hjust = 0.5, margin = margin(0, 0, 20, 0)),
     plot.caption = element_text(hjust = 0.5, margin = margin(10, 0, 0, 0)),
     panel.grid.major = element_blank(),
-    panel.grid.minor = element_blank(),
-    strip.text = element_text(size = 7),
-    axis.text.x = element_text(size = 5),
+    panel.grid.minor = element_blank(), 
     legend.position = "top"
   )
 
-ggsave(here("figures/model/educ-metro-eth.svg"), width = 8, height = 6)
 ggsave(here("figures/model/educ-metro-eth.png"), width = 8, height = 6, dpi = 300)
 ```
 
-```{r}
+## Inc-educ-metro-eth
+
+```{r, fig.width = 10, fig.height = 6}
+inc_educ_metro <- map2(data_matrices, years, ~ poststrat_by("metro", "educ", "inc", data_matrix = .x, year = .y)) %>%
+  list_rbind() %>%
+  mutate(year = as.factor(year))
+
+inc_educ_metro %>%
+  filter(year == 2020) %>% 
+  ggplot(aes(group = educ_str)) +
+  geom_line(aes(x = inc_str, y = vote_non_white, color = "grey"), linewidth = 1, alpha = 0.8) +
+  geom_line(aes(x = inc_str, y = vote_white, color = "#FCA53A"), linewidth = 1, alpha = 0.8) +
+  geom_hline(aes(yintercept = 0.5), color = "grey80", linewidth = 0.2) +
+  facet_grid(vars(metro_str), vars(educ_str)) +
+  scale_x_discrete(labels = c("Poor", "", "Mid", "", "Rich")) +
+  scale_color_identity(
+    name = "",
+    breaks = c("grey", "#FCA53A"),
+    labels = c("Non-white", "White"),
+    guide = "legend"
+  ) +
+  scale_y_continuous(labels = scales::label_percent(), breaks = seq(0, 1, 0.5)) +
+  coord_cartesian(ylim = c(0, 1)) +
+  labs(x = "", y = "") +
+  theme_classic() +
+  theme(
+    plot.title = element_text(size = 16, hjust = 0.5, margin = margin(0, 0, 20, 0)),
+    plot.caption = element_text(hjust = 0.5, margin = margin(10, 0, 0, 0)),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(), 
+    legend.position = "top"
+  )
+
+ggsave(here("figures/model/inc-educ-metro-eth.png"), width = 8, height = 6, dpi = 300)
+```
+
+## Inc-educ
+
+```{r, width = 8, height = 6}
 educ_inc <- map2(data_matrices, years, ~ poststrat_by("educ", "inc", data_matrix = .x, year = .y)) %>%
   list_rbind() %>%
   mutate(year = as.factor(year))
@@ -337,12 +473,11 @@ educ_inc %>%
   geom_line(aes(x = inc_str, y = vote_all), linewidth = 1, alpha = 0.8) +
   geom_hline(aes(yintercept = 0.5), color = "grey80", linewidth = 0.2) +
   facet_wrap(~educ_str) +
-  scale_color_manual(values = c("#FCBE3A", "#FCA53A", "#FF5C33")) +
+  scale_color_manual(values = COLORS) +
+  scale_x_discrete(labels = c("Poor", "", "Mid", "", "Rich")) +
   scale_y_continuous(labels = scales::label_percent(), breaks = seq(0, 1, 0.5)) +
   coord_cartesian(ylim = c(0, 1)) +
-  labs(
-    x = "", y = "",
-  ) +
+  labs(x = "", y = "") +
   theme_classic() +
   theme(
     plot.title = element_text(size = 16, hjust = 0.5, margin = margin(0, 0, 20, 0)),
@@ -353,8 +488,39 @@ educ_inc %>%
     legend.position = "top"
   )
 
-ggsave(here("figures/model/income-educ.svg"), width = 12, height = 10)
-ggsave(here("figures/model/income-educ.png"), width = 12, height = 10, dpi = 300)
+# ggsave(here("figures/model/income-educ.svg"), width = 12, height = 10)
+ggsave(here("figures/model/income-educ.png"), width = 8, height = 6, dpi = 300)
+```
+
+## Inc-region
+
+```{r}
+inc_reg <- map2(data_matrices, years, ~ poststrat_by("inc", "region_name", data_matrix = .x, year = .y)) %>%
+  list_rbind() %>%
+  mutate(year = as.factor(year))
+
+inc_reg %>%
+  ggplot(aes(group = year, color = year)) +
+  geom_line(aes(x = inc_str, y = vote_all), linewidth = 1, alpha = 0.8) +
+  geom_hline(aes(yintercept = 0.5), color = "grey80", linewidth = 0.2) +
+  facet_wrap(~region_name) +
+  scale_color_manual(values = COLORS) +
+  scale_x_discrete(labels = c("<HS", "", "Mid", "", "Postgrad")) +
+  scale_y_continuous(labels = scales::label_percent(), breaks = seq(0, 1, 0.5)) +
+  coord_cartesian(ylim = c(0, 1)) +
+  labs(x = "", y = "") +
+  theme_classic() +
+  theme(
+    plot.title = element_text(size = 16, hjust = 0.5, margin = margin(0, 0, 20, 0)),
+    plot.caption = element_text(hjust = 0.5, margin = margin(10, 0, 0, 0)),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    strip.text = element_text(size = 10),
+    legend.position = "top"
+  )
+
+# ggsave(here("figures/model/inc-educ.svg"), width = 8, height = 6)
+ggsave(here("figures/model/inc-region.png"), width = 8, height = 6, dpi = 300)
 ```
 
 ## Metro-inc
@@ -369,12 +535,10 @@ metro_inc %>%
   geom_line(aes(x = metro_str, y = vote_all), linewidth = 1, alpha = 0.8) +
   geom_hline(aes(yintercept = 0.5), color = "grey80", linewidth = 0.2) +
   facet_wrap(~inc_str) +
-  scale_color_manual(values = c("#FCBE3A", "#FCA53A", "#FF5C33")) +
+  scale_color_manual(values = COLORS) +
   scale_y_continuous(labels = scales::label_percent(), breaks = seq(0, 1, 0.5)) +
   coord_cartesian(ylim = c(0, 1)) +
-  labs(
-    x = "", y = "",
-  ) +
+  labs(x = "", y = "") +
   theme_classic() +
   theme(
     plot.title = element_text(size = 16, hjust = 0.5, margin = margin(0, 0, 20, 0)),
@@ -385,8 +549,8 @@ metro_inc %>%
     legend.position = "top"
   )
 
-ggsave(here("figures/model/metro-income.svg"), width = 12, height = 10)
-ggsave(here("figures/model/metro-income.png"), width = 12, height = 10, dpi = 300)
+# ggsave(here("figures/model/metro-income.svg"), width = 12, height = 10)
+ggsave(here("figures/model/metro-inc.png"), width = 8, height = 6, dpi = 300)
 ```
 
 
@@ -400,7 +564,8 @@ metro_inc %>%
   geom_line(aes(x = inc_str, y = vote_all), linewidth = 1, alpha = 0.8) +
   geom_hline(aes(yintercept = 0.5), color = "grey80", linewidth = 0.2) +
   facet_wrap(~metro_str, ncol = 2) +
-  scale_color_manual(values = c("#FCBE3A", "#FCA53A", "#FF5C33")) +
+  scale_color_manual(values = COLORS) +
+  scale_x_discrete(labels = c("Poor", "", "Mid", "", "Rich")) +
   scale_y_continuous(labels = scales::label_percent(), breaks = seq(0, 1, 0.5)) +
   coord_cartesian(ylim = c(0, 1)) +
   labs(
@@ -416,7 +581,7 @@ metro_inc %>%
     legend.position = "top"
   )
 
-ggsave(here("figures/model/income-metro.svg"), width = 8, height = 6)
+# ggsave(here("figures/model/income-metro.svg"), width = 8, height = 6)
 ggsave(here("figures/model/income-metro.png"), width = 8, height = 6, dpi = 300)
 ```
 
@@ -432,12 +597,11 @@ educ_metro %>%
   geom_line(aes(x = educ_str, y = vote_all), linewidth = 1, alpha = 0.8) +
   geom_hline(aes(yintercept = 0.5), color = "grey80", linewidth = 0.2) +
   facet_wrap(~metro_str, ncol = 2) +
-  scale_color_manual(values = c("#FCBE3A", "#FCA53A", "#FF5C33")) +
+  scale_color_manual(values = COLORS) +
+  scale_x_discrete(labels = c("<HS", "", "Mid", "", "Postgrad")) +
   scale_y_continuous(labels = scales::label_percent(), breaks = seq(0, 1, 0.5)) +
   coord_cartesian(ylim = c(0, 1)) +
-  labs(
-    x = "", y = "",
-  ) +
+  labs(x = "", y = "") +
   theme_classic() +
   theme(
     plot.title = element_text(size = 16, hjust = 0.5, margin = margin(0, 0, 20, 0)),
@@ -448,6 +612,243 @@ educ_metro %>%
     legend.position = "top"
   )
 
-ggsave(here("figures/model/educ-metro.svg"), width = 12, height = 10)
-ggsave(here("figures/model/educ-metro.png"), width = 12, height = 10, dpi = 300)
+# ggsave(here("figures/model/educ-metro.svg"), width = 6, height = 6)
+ggsave(here("figures/model/educ-metro.png"), width = 6, height = 6, dpi = 300)
 ```
+## Misc
+
+```{r}
+map2(data_matrices, years, ~ poststrat_by("inc", data_matrix = .x, year = .y)) %>%
+  list_rbind() %>%
+  mutate(year = as.factor(year)) %>% 
+  ggplot(aes(inc_str, vote_all, group = year, color = year)) + 
+  geom_line(linewidth = 1) +
+  scale_color_manual(values = COLORS) +
+  # scale_y_continuous(labels = scales::label_percent(), breaks = seq(0, 1, 0.5)) +
+  # coord_cartesian(ylim = c(0, 1)) +
+  labs(x = "Income", y = "Vote share") +
+  theme_classic()
+```
+
+```{r}
+map2(data_matrices, years, ~ poststrat_by("educ", data_matrix = .x, year = .y)) %>%
+  list_rbind() %>%
+  mutate(year = as.factor(year)) %>% 
+  ggplot(aes(educ_str, vote_all, group = year, color = year)) + 
+  geom_line(linewidth = 1) +
+  geom_hline(aes(yintercept = 0.5), color = "grey80", linewidth = 0.2) +
+  scale_color_manual(values = COLORS) +
+  scale_y_continuous(labels = scales::label_percent(), breaks = seq(0, 1, 0.5)) +
+  coord_cartesian(ylim = c(0, 1)) +
+  labs(x = "Education", y = "Vote share") +
+  theme_classic()
+```
+
+```{r}
+educ_inc_state <- map2(data_matrices, years, ~ poststrat_by("educ", "inc", "stt", data_matrix = .x, year = .y)) %>%
+  list_rbind() %>%
+  left_join(stt_dict, by = c("stt" = "stt")) %>%
+  filter(!state_abbr %in% c("AK", "HI", "DC")) %>%
+  left_join(states_data %>% dplyr::select(state_abbr, rep_votes), by = c("state_abbr" = "state_abbr")) %>%
+  mutate(state_name = fct_reorder(state_name, rep_votes, .desc = TRUE)) %>%
+  mutate(year = as.factor(year))
+
+map_data %>% 
+  filter(!abbr %in% c("AK", "HI", "DC")) %>%
+  left_join(educ_inc_state %>% filter(year == 2020), join_by(abbr == state_abbr)) %>% 
+  ggplot() + 
+  geom_sf(aes(fill = vote_all)) + 
+  scale_fill_gradient2(low = "darkblue", mid = "white", high = "darkred", midpoint = 0.5) + 
+  facet_grid(vars(educ_str), vars(inc_str)) +
+  theme_void() +
+  theme(legend.position = "top")
+```
+
+```{r}
+map_data %>% 
+  filter(!abbr %in% c("AK", "HI", "DC")) %>%
+  left_join(educ_inc_state %>% filter(year == 2012), join_by(abbr == state_abbr)) %>% 
+  ggplot() + 
+  geom_sf(aes(fill = vote_all)) + 
+  scale_fill_gradient2(low = "darkblue", mid = "white", high = "darkred", midpoint = 0.5) + 
+  facet_grid(vars(educ_str), vars(inc_str)) +
+  theme_void() +
+  theme(legend.position = "top")
+```
+
+
+```{r, fig.width = 10, fig.height = 10}
+income_state %>%
+  filter(year == 2020) %>% 
+  ggplot(aes(group = year, color = year)) +
+  geom_line(aes(x = inc_str, y = vote_all, color = "grey"), linewidth = 1, alpha = 0.8) +
+  geom_line(aes(x = inc_str, y = vote_white, color = "#FCA53A"), linewidth = 1, alpha = 0.8) +
+  geom_hline(aes(yintercept = 0.5), color = "grey80", linewidth = 0.2) +
+  facet_wrap(~state_name, ncol = 8) +
+  scale_x_discrete(labels = c("Poor", "", "Mid", "", "Rich")) +
+  scale_color_identity(
+    name = "",
+    breaks = c("grey", "#FCA53A"),
+    labels = c("All", "White only"),
+    guide = "legend"
+  ) +
+  scale_y_continuous(labels = scales::label_percent(), breaks = seq(0, 1, 0.5)) +
+  coord_cartesian(ylim = c(0, 1)) +
+  labs(x = "", y = "") +
+  theme_classic() +
+  theme(
+    plot.title = element_text(size = 16, hjust = 0.5, margin = margin(0, 0, 20, 0)),
+    plot.caption = element_text(hjust = 0.5, margin = margin(10, 0, 0, 0)),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    strip.text = element_text(size = 12),
+    legend.position = "top",
+    legend.text = element_text(size = 14),
+    legend.title = element_text(size = 14)
+  )
+```
+
+```{r}
+educ_inc_state %>% 
+  group_by(stt) %>% 
+  mutate(percent_pop = total_pop/sum(total_pop) * 100) %>%
+  ungroup() %>% 
+  ggplot(aes(percent_pop)) +
+  geom_histogram()
+
+map_data %>% 
+  filter(!abbr %in% c("AK", "HI", "DC")) %>%
+  left_join(educ_inc_state %>% filter(year == 2012), join_by(abbr == state_abbr)) %>% 
+  group_by(stt) %>% 
+  mutate(percent_pop = total_pop/sum(total_pop) * 100) %>%
+  mutate(vote_all = if_else(percent_pop < 1, NA_real_, vote_all)) %>% 
+  ungroup() %>% 
+  ggplot() + 
+  geom_sf(aes(fill = vote_all)) + 
+  scale_fill_gradient2(low = "darkblue", mid = "grey90", high = "darkred", midpoint = 0.5, 
+                       na.value = "white") + 
+  facet_grid(vars(educ_str), vars(inc_str)) +
+  theme_void() +
+  theme(legend.position = "top")
+```
+
+```{r}
+inc_reg %>%
+  filter(region_name != "DC") %>% 
+  mutate(diff = vote_white - vote_non_white) %>% 
+  ggplot(aes(group = year)) +
+  geom_line(aes(x = inc_str, y = vote_non_white, color = "grey"), linewidth = 1, alpha = 0.8) +
+  geom_line(aes(x = inc_str, y = vote_white, color = "#FCA53A"), linewidth = 1, alpha = 0.8) +
+  geom_hline(aes(yintercept = 0.5), color = "grey80", linewidth = 0.2) +
+  facet_grid(vars(year), vars(region_name)) +
+  scale_x_discrete(labels = c("Poor", "", "Mid", "", "Rich")) +
+  scale_y_continuous(labels = scales::label_percent(), breaks = seq(0, 1, 0.5)) +
+  scale_color_identity(
+    name = "",
+    breaks = c("grey", "#FCA53A"),
+    labels = c("Non-white", "White"),
+    guide = "legend"
+  ) +
+  coord_cartesian(ylim = c(0, 1)) +
+  labs(x = "", y = "") +
+  theme_classic() +
+  theme(
+    plot.title = element_text(size = 16, hjust = 0.5, margin = margin(0, 0, 20, 0)),
+    plot.caption = element_text(hjust = 0.5, margin = margin(10, 0, 0, 0)),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    legend.position = "top"
+  )
+```
+
+
+```{r}
+educ_inc_state %>% 
+  group_by(stt) %>% 
+  mutate(percent_pop = total_pop/sum(total_pop) * 100) %>%
+  ungroup() %>% 
+  ggplot(aes(percent_pop)) +
+  geom_histogram()
+
+map_data %>% 
+  filter(!abbr %in% c("AK", "HI", "DC")) %>%
+  left_join(educ_inc_state %>% filter(year == 2008), join_by(abbr == state_abbr)) %>% 
+  group_by(stt) %>% 
+  mutate(percent_pop = total_pop/sum(total_pop) * 100) %>%
+  mutate(vote_all = if_else(percent_pop < 0.1, NA_real_, vote_all)) %>% 
+  ungroup() %>% 
+  ggplot() + 
+  geom_sf(aes(fill = vote_all)) + 
+  scale_fill_gradient2(low = "darkblue", mid = "grey90", high = "darkred", midpoint = 0.5, 
+                       na.value = "white") + 
+  facet_grid(vars(educ_str), vars(inc_str)) +
+  theme_void() +
+  theme(legend.position = "top")
+```
+
+```{r}
+map_data %>% 
+  filter(!abbr %in% c("AK", "HI", "DC")) %>%
+  left_join(educ_inc_state %>% filter(year == 2020), join_by(abbr == state_abbr)) %>% 
+  group_by(stt) %>% 
+  mutate(percent_pop = total_pop/sum(total_pop) * 100) %>%
+  mutate(vote_all = if_else(percent_pop < 0.1, NA_real_, vote_all)) %>% 
+  ungroup() %>% 
+  ggplot() + 
+  geom_sf(aes(fill = vote_all)) + 
+  scale_fill_gradient2(low = "darkblue", mid = "grey90", high = "darkred", midpoint = 0.5, 
+                       na.value = "white") + 
+  facet_grid(vars(educ_str), vars(inc_str)) +
+  theme_void() +
+  theme(legend.position = "top")
+```
+
+
+```{r}
+educ <- map2(data_matrices, years, ~ poststrat_by("educ", data_matrix = .x, year = .y)) %>%
+  list_rbind() %>%
+  mutate(year = as.factor(year))
+
+educ %>%
+  mutate(diff = vote_white - vote_non_white) %>% 
+  ggplot(aes(x = year, y = diff, group = educ_str)) +
+  geom_line(linewidth = 1) +
+  ggrepel::geom_text_repel(data = . %>% filter(year == 2020), aes(label = educ_str), nudge_x = 0.1) +
+  scale_y_continuous(labels = scales::label_percent()) +
+  labs(x = "", y = "") +
+  theme_classic() +
+  theme(
+    plot.title = element_text(size = 16, hjust = 0.5, margin = margin(0, 0, 20, 0)),
+    plot.caption = element_text(hjust = 0.5, margin = margin(10, 0, 0, 0)),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    strip.text = element_text(size = 10),
+    legend.position = "none"
+  )
+```
+
+```{r}
+inc <- map2(data_matrices, years, ~ poststrat_by("inc", data_matrix = .x, year = .y)) %>%
+  list_rbind() %>%
+  mutate(year = as.factor(year))
+
+inc %>%
+  mutate(diff = vote_white - vote_non_white) %>% 
+  ggplot(aes(group = inc_str, color = inc_str)) +
+  geom_line(aes(x = year, y = diff), linewidth = 1, alpha = 0.8) 
+```
+
+```{r}
+states_election_data %>%
+    dplyr::filter(party_simplified %in% c("DEMOCRAT", "REPUBLICAN"), year > 2000) %>%
+    dplyr::group_by(year, state, state_abbr = state_po, party_simplified, totalvotes) %>%
+    dplyr::summarise(votes = sum(candidatevotes), .groups = "drop") %>%
+    tidyr::pivot_wider(names_from = party_simplified, values_from = votes, values_fill = list(votes = 0)) %>%
+    dplyr::rename(dem_raw_votes = DEMOCRAT, rep_raw_votes = REPUBLICAN) %>% 
+    dplyr::mutate(dem_votes = dem_raw_votes / (dem_raw_votes + rep_raw_votes),
+                  rep_votes = rep_raw_votes / (dem_raw_votes + rep_raw_votes)) %>% 
+  filter(state_abbr == "UT") %>% 
+  ggplot(aes(year, rep_votes)) +
+  geom_line()
+```
+
