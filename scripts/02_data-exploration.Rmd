@@ -1,5 +1,5 @@
 ---
-title: "Data exploration"
+title: "Data Exploration"
 author: "Farhan Reynaldo"
 date: "2024-09-26"
 output: html_document
@@ -18,7 +18,7 @@ library(arrow)
 library(srvyr)
 library(here)
 
-source(here("src/election.R"))
+source(here("src/helpers.R"))
 source(here("src/theme.R"))
 
 election_all <- read_feather(here("data/CCES Cumulative/cumulative_2006-2023.feather"))
@@ -31,65 +31,29 @@ poststrat_data <- read_csv(here("data/census-pums-pop.csv")) %>%
 ```
 
 ```{r}
-# Define constants
-reg.lkup <- c(3, 4, 4, 3, 4, 4, 1, 1, 5, 3, 3, 4, 4, 2, 2, 2, 2, 3, 3, 1, 1, 1, 2, 2, 3, 2, 4, 2, 4, 1, 1, 4, 1, 3, 2, 2, 3, 4, 1, 1, 3, 2, 3, 3, 4, 1, 3, 4, 1, 2, 4)
-stt.label <- c(state.name[1:8], "DC", state.name[9:50])
-stt.abb.label <- c(state.abb[1:8], "DC", state.abb[9:50])
-eth.label <- c("White", "Black", "Hispanic", "Other")
-inc.label <- c("$0-20k", "$20-40k", "$40-75k", "$75-150k", "$150k+")
-age.label <- c("18-29", "30-44", "45-64", "65+")
-sex.label <- c("Male", "Female")
-educ.label <- c("< HS", "HS", "Some College", "College", "Post-Grad")
-metro.label <- c("Rural", "Suburban", "Urban")
-
-# Create state dictionary
-stt_dict <- data.frame(
-  state_name = stt.label, state_abbr = stt.abb.label, stt = factor(1:51), 
-  region = reg.lkup
-)
-
-# COLORS <- c("#fdbb84", "#fc8d59", "#e34a33", "#b30000")
-COLORS <- c("#fdbb84", "#fc8d59", "#e34a33")
+COLORS <- c("#fdbb84", "#fc8d59", "#e34a33", "#b30000")
 COL_NAMES <- c("eth", "inc", "age", "educ", "metro")
 ```
 
-## Elections
+## Preprocess elections
 
 ```{r}
-years <- seq(2012, 2020, 4)
+years <- seq(2008, 2020, 4)
 elections <- purrr::map(years, ~process_election_data(election_all, year = .x)) %>% 
   purrr::list_rbind() %>% 
-  mutate(across(is.labelled, ~as_factor(.)))
+  mutate(across(where(is.labelled), ~as_factor(.)))
+
+elections %>% 
+  dplyr::select(inc, educ, age, eth, metro, year) %>% 
+  mutate(across(is.factor, map_label)) %>% 
+  table1::table1(~ educ + eth + inc + age + metro | as_factor(year), data = .) 
+  # as.data.frame() %>% 
+  # xtable::xtable()
 ```
 
 ## Function 
 
 ```{r}
-get_label <- function(col_name) {
-  label <- switch(col_name,
-    eth = eth.label,
-    inc = inc.label,
-    age = age.label,
-    educ = educ.label,
-    metro = metro.label,
-    stt = stt.label
-  )
-  return(label)
-}
-
-relevel_label <- function(col_name) {
-  col_name <- deparse(substitute(col_name))
-  get_label(col_name)
-}
-
-map_label <- function(col) {
-  col_name <- deparse(substitute(col))
-  label <- get_label(col_name)
-  label_mapper <- setNames(label, 1:length(label))
-  result <- unname(label_mapper[as.character(col)])
-  fct_relevel(result, label)
-}
-
 create_survey_means <- function(data, ..., year = NULL) {
   group_vars <- enquos(...)
   
@@ -112,8 +76,6 @@ create_survey_means <- function(data, ..., year = NULL) {
 ## Distribution
 
 ```{r}
-
-
 plot_variable <- function(col_name) {
   elections %>%
     mutate(col = map_label(!!ensym(col_name)),
