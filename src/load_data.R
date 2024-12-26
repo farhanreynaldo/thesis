@@ -1,5 +1,4 @@
 library(arrow)
-library(ipumsr)
 library(tidyverse)
 
 election_all <- read_feather(here("data/CCES Cumulative/cumulative_2006-2023.feather"))
