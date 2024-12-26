@@ -9,7 +9,7 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-here::i_am("scripts/data-import.Rmd")
+here::i_am("scripts/01_data-import.Rmd")
 ```
 
 ```{r}
