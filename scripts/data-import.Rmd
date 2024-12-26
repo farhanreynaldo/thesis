@@ -1,9 +1,11 @@
 ---
-title: "Data exploration"
-author: "Farhan Reynaldo"
+title: "Data Import"
+author: "Farhan Reynaldo Hutabarat"
 date: "2024-09-26"
 output: html_document
 ---
+
+## Import libraries
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
@@ -16,9 +18,10 @@ library(tidyverse)
 library(tidycensus)
 library(here)
 
-source(here::here("src/election.R"))
+source(here::here("src/helpers.R"))
 ```
 
+## Download IPUMS data
 
 ```{r}
 samples <- c("us2008c", "us2012c", "us2016c", "us2020c")
@@ -34,52 +37,21 @@ usa_extract_definition <- define_extract_micro(
   samples = samples,
   variables = variables
 )
+
 usa_extract_submitted <- submit_extract(usa_extract_definition)
-# ipumsr::is_extract_ready(usa_extract_submitted)
-# usa_extract_complete <- wait_for_extract(usa_extract_submitted)
 filepath <- download_extract(usa_extract_submitted, download_dir = here("data/IPUMS/"))
-
-ddi <- read_ipums_ddi(here("data/IPUMS/usa_00008.xml"))
-ipums_data <- read_ipums_micro(ddi)
 ```
 
+## Create post-stratification data
+
 ```{r}
-# Define constants
-stt.label <- c(state.name[1:8], "DC", state.name[9:50])
-eth.label <- c("White", "Black", "Hispanic", "Other")
-inc.label <- c("$0-20k", "$20-40k", "$40-75k", "$75-150k", "$150k+")
-age.label <- c("18-29", "30-44", "45-64", "65+")
-sex.label <- c("Male", "Female")
-educ.label <- c("< HS", "HS", "Some College", "College", "Post-Grad")
-metro.label <- c("Rural", "Suburban", "Urban")
-
-years <- c(2008, 2012, 2016, 2020)
-dfs <- map(years, ~ process_ipums_data(ipums_data, year = .x) %>% mutate(year = .x))
-
-expand.grid(
-  year = years,
-  sex = factor(1:length(sex.label)),
-  age = factor(1:length(age.label)),
-  eth = factor(1:length(eth.label)),
-  educ = factor(1:length(educ.label)),
-  inc = factor(1:length(inc.label)),
-  stt = factor(1:length(stt.label)),
-  metro = factor(1:length(metro.label))
-) %>%
-  left_join(list_rbind(dfs), by = c("sex", "age", "eth", "educ", "inc", "metro", "stt", "year")) %>%
-  mutate(pop = replace_na(pop, 0),
-         wtpop = replace_na(wtpop, 0)) %>% 
-  pivot_wider(
-    names_from = year, 
-    values_from = c(pop, wtpop), 
-    names_sep = ""
-  ) %>% 
-  write_csv("../data/census-pums-pop.csv")
+generate_poststratification_data(ipums_data_path = "../data/IPUMS/usa_00008.xml")
 ```
 
+## Download ACS data
 
 ```{r}
-# Supposed to be 2004 instead of 2005
+# Using 2005 since ACS 1-year data is not available for 2004
 years <- c(2005, 2008, 2012, 2016, 2019)
 
 my_vars <- c(

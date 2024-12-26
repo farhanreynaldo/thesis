@@ -191,8 +191,8 @@ process_ipums_data <- function(ipums_data, year) {
   return(ipums_agg)
 }
 
-generate_poststratification_data <- function() {
-  ipums_data <- ipumsr::read_ipums_ddi("../data/IPUMS/usa_00008.xml") %>%
+generate_poststratification_data <- function(ipums_data_path = "../data/IPUMS/usa_00008.xml") {
+  ipums_data <- ipumsr::read_ipums_ddi(ipums_data_path) %>%
     ipumsr::read_ipums_micro()
   years <- c(2008, 2012, 2016, 2020)
   dfs <- purrr::map(years, ~ process_ipums_data(ipums_data, year = .x) %>% mutate(year = .x))
