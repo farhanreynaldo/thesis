@@ -1,5 +1,5 @@
 ---
-title: "Data visualization"
+title: "Data Visualization"
 author: "Farhan Reynaldo"
 date: "2024-09-26"
 output: html_document
@@ -9,7 +9,7 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-here::i_am("scripts/data-viz.Rmd")
+here::i_am("scripts/04_data-visualization.Rmd")
 
 library(ggtext)
 library(usmap)
@@ -20,7 +20,7 @@ library(ggrepel)
 
 source(here::here("src/theme.R"))
 source(here::here("src/load_data.R"))
-source(here::here("src/election.R"))
+source(here::here("src/helpers.R"))
 
 map_data <- usmap::us_map(regions = "states")
 poststrat_data <- read_csv(here("data/census-pums-pop.csv"))
@@ -31,33 +31,7 @@ COVARIATES <- c("stt", "eth", "inc", "age", "educ", "metro")
 COLORS <- c("#fdbb84", "#fc8d59", "#e34a33", "#b30000")
 ```
 
-
 ```{r}
-get_label <- function(col_name) {
-  label <- switch(col_name,
-    eth = eth.label,
-    inc = inc.label,
-    age = age.label,
-    educ = educ.label,
-    metro = metro.label,
-    stt = stt.label
-  )
-  return(label)
-}
-
-relevel_label <- function(col_name) {
-  col_name <- deparse(substitute(col_name))
-  get_label(col_name)
-}
-
-map_label <- function(col) {
-  col_name <- deparse(substitute(col))
-  label <- get_label(col_name)
-  label_mapper <- setNames(label, 1:length(label))
-  result <- unname(label_mapper[as.character(col)])
-  fct_relevel(result, label)
-}
-
 create_adjusted_data_matrix <- function(model_matrix, poststrat_data = NULL) {
   year <- model_matrix$data_matrix$year[1]
   year_pop_column <- paste0("wtpop", year)
@@ -162,8 +136,6 @@ income_state %>%
     legend.title = element_text(size = 14)
   )
 
-
-# ggsave(here("figures/model/income-state.svg"), width = 10, height = 10)
 ggsave(here("figures/model/income-state.png"), width = 10, height = 10, dpi = 300)
 ```
 
@@ -200,7 +172,6 @@ educ_state %>%
     legend.title = element_text(size = 14)
   )
 
-# ggsave(here("figures/model/educ-state.svg"), width = 10, height = 10)
 ggsave(here("figures/model/educ-state.png"), width = 10, height = 10, dpi = 300)
 ```
 
@@ -231,7 +202,6 @@ educ_inc %>%
     legend.position = "top"
   )
 
-# ggsave(here("figures/model/inc-educ.svg"), width = 8, height = 6)
 ggsave(here("figures/model/inc-educ.png"), width = 8, height = 6, dpi = 300)
 ```
 
@@ -317,7 +287,6 @@ educ_inc %>%
     legend.position = "top"
   )
 
-# ggsave(here("figures/model/inc-educ-eth.svg"), width = 8, height = 6)
 ggsave(here("figures/model/inc-educ-eth.png"), width = 8, height = 6, dpi = 300)
 ```
 
@@ -351,7 +320,6 @@ educ_inc %>%
     legend.position = "top"
   )
 
-# ggsave(here("figures/model/inc-educ-eth.svg"), width = 8, height = 6)
 ggsave(here("figures/model/educ-inc-eth.png"), width = 8, height = 6, dpi = 300)
 ```
 
@@ -488,7 +456,6 @@ educ_inc %>%
     legend.position = "top"
   )
 
-# ggsave(here("figures/model/income-educ.svg"), width = 12, height = 10)
 ggsave(here("figures/model/income-educ.png"), width = 8, height = 6, dpi = 300)
 ```
 
@@ -519,7 +486,6 @@ inc_reg %>%
     legend.position = "top"
   )
 
-# ggsave(here("figures/model/inc-educ.svg"), width = 8, height = 6)
 ggsave(here("figures/model/inc-region.png"), width = 8, height = 6, dpi = 300)
 ```
 
@@ -549,7 +515,6 @@ metro_inc %>%
     legend.position = "top"
   )
 
-# ggsave(here("figures/model/metro-income.svg"), width = 12, height = 10)
 ggsave(here("figures/model/metro-inc.png"), width = 8, height = 6, dpi = 300)
 ```
 
@@ -581,7 +546,6 @@ metro_inc %>%
     legend.position = "top"
   )
 
-# ggsave(here("figures/model/income-metro.svg"), width = 8, height = 6)
 ggsave(here("figures/model/income-metro.png"), width = 8, height = 6, dpi = 300)
 ```
 
@@ -612,7 +576,6 @@ educ_metro %>%
     legend.position = "top"
   )
 
-# ggsave(here("figures/model/educ-metro.svg"), width = 6, height = 6)
 ggsave(here("figures/model/educ-metro.png"), width = 6, height = 6, dpi = 300)
 ```
 ## Misc
