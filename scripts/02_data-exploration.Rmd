@@ -7,7 +7,7 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-here::i_am("scripts/data-exploration-2.Rmd")
+here::i_am("scripts/02_data-exploration.Rmd")
 ```
 
 ## Load library and data
