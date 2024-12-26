@@ -1,5 +1,5 @@
 ---
-title: "Data visualization"
+title: "Data Modeling"
 author: "Farhan Reynaldo"
 date: "2024-09-26"
 output: html_document
@@ -7,9 +7,7 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-here::i_am("scripts/data-modeling-2.Rmd")
-
-ssh_private_key_file <- "~/.ssh/id_rsa"
+here::i_am("scripts/03_data-modeling.Rmd")
 ```
 
 
@@ -19,10 +17,7 @@ library(tidybayes)
 library(tidyverse)
 library(here)
 library(brms)
-library(future)
-library(listenv)
 
-source(here::here("src/election.R"))
 source(here::here("src/helpers.R"))
 source(here::here("src/theme.R"))
 source(here::here("src/load_data.R"))
@@ -32,61 +27,6 @@ poststrat_data <- read_csv(here("data/census-pums-pop-2016.csv")) %>%
   mutate(pop2008 = wtpop)
 
 # options(mc.cores = parallelly::availableCores())
-```
-
-
-```{r}
-year <- 2016
-run <- FALSE
-
-states_data <- process_states_data(states_election_data, states_pop_income_data, year)
-election_processed <- process_election_data(election_all, year)
-covariates <- c("stt", "eth", "inc", "age", "educ", "metro")
-
-data_matrix <- expand.grid(
-  stt = factor(1:length(stt.label)),
-  eth = factor(1:length(eth.label)),
-  inc = factor(1:length(inc.label)),
-  age = factor(1:length(age.label)),
-  educ = factor(1:length(educ.label)),
-  metro = factor(1:length(metro.label))
-) %>%
-  mutate(
-    grp = apply(., 1, paste, collapse = "_"),
-    ix = row_number()
-  ) %>%
-  left_join(states_data, by = c("stt" = "stt")) %>%
-  mutate(
-    reg = factor(reg.lkup[as.numeric(stt)]),
-    z_inc = arm::rescale(as.numeric(inc))
-  )
-
-election_subset <- election_processed %>%
-  mutate(
-    # Vote for Republican
-    vote = ifelse(vote == "Republican", 1, 0),
-    grp = apply(.[, covariates], 1, paste, collapse = "_"),
-    ones = 1
-  )
-
-# Calculate and add weighted results
-data_matrix <- calc_and_add_weighted_results(data_matrix, election_subset)
-
-# Build and fit model
-reg_formula <- "cbind(yes, no) ~ z_inc*z_incstt + z_inc*z_trnprv +
-(1 + z_inc | reg) + (1 + z_inc | stt) + (1 + z_inc | eth)  + (1 + z_inc | educ) + (1 + z_inc | age) + (1 + z_inc | metro) + (1 | inc) + (1 | reg : eth) + (1 | reg : inc) + (1 | reg : age) + (1 | reg : metro) + (1 | stt : eth) + (1 | stt : inc) + (1 | stt : age) + (1 | stt : metro) + (1 | eth : inc) + (1 | eth : age) + (1 | eth : metro) + (1 | inc : age) + (1 | inc : metro) + (1 | educ : age) + (1 | educ : stt) + (1 | educ : inc) + (1 | educ : eth) + (1 | educ : reg) + (1 | educ : metro)"
-
-
-if (run == TRUE) {
-  model <- stan_glmer(reg_formula,
-    data = data_matrix,
-    family = binomial(link = "logit"), iter = 500
-  )
-
-  pred <- posterior_epred(model, newdata = data_matrix)
-  model_matrix <- list(model = model, data_matrix = data_matrix, pred = pred)
-  saveRDS(model_matrix, here("data/model_matrix_complete_2020.rds"))
-}
 ```
 
 ```{r}
@@ -145,16 +85,15 @@ fit_model <- function(data_matrix, formula_level = 1, run = FALSE) {
   
   if(formula_level == 1) {
   model <- stan_glm(formula, data = data_matrix, family = binomial(link = "logit"),
-                    iter = 500, prior = normal(0, 1, autoscale = TRUE),
+                    iter = 1000, prior = normal(0, 1, autoscale = TRUE),
                     prior_intercept = normal(0, 1, autoscale = TRUE))
   } else {
     model <- stan_glmer(formula, data = data_matrix, family = binomial(link = "logit"),
-                      iter = 500, prior = normal(0, 1, autoscale = TRUE),
+                      iter = 1000, prior = normal(0, 1, autoscale = TRUE),
                       prior_covariance = decov(scale = 0.50),
                       adapt_delta = 0.99, 
                       seed = 10027)
   }
-  # pred <- posterior_epred(model, newdata = data_matrix)
   model_filename <- glue::glue("model_matrix_complete-{year}-formula_level_{formula_level}.rds")
   model_matrix <- list(model = model, data_matrix = data_matrix, name = model_filename)
   saveRDS(model_matrix, model_filename)
@@ -176,8 +115,7 @@ for (i in seq_along(years)) {
 ```{r}
 model_matrix_filenames <- list.files(
     path = ".", 
-    # pattern = "model_matrix_complete-\\d{4}-formula_level_\\w+\\.rds", 
-    pattern = "model_matrix_complete-\\d{4}-formula_level_4\\.rds",
+    pattern = "model_matrix_complete-\\d{4}-formula_level_\\w+\\.rds",
     full.names = TRUE
   )
 
@@ -188,27 +126,3 @@ for(filename in model_matrix_filenames) {
   saveRDS(pred, output_filename)
 }
 ```
-
-```{r}
-# formula <- "yes | trials(yes + no) ~ z_inc*z_incstt + z_inc*z_trnprv + reg + age + 
-#     (1 + z_inc | reg) + (1 + z_inc | stt) + (1 + z_inc | eth)  + (1 + z_inc | educ) + (1 + z_inc | age) + (1 + z_inc | metro) + (1 | inc) + (1 | reg : eth) + (1 | reg : inc) + (1 | reg : metro) + (1 | stt : eth) + (1 | stt : inc) + (1 | stt : metro) + (1 | eth : inc) + (1 | eth : metro) + (1 | inc : metro) + (1 | educ : stt) + (1 | educ : inc) + (1 | educ : eth) + (1 | educ : metro) + (1 | educ : metro : inc)"
-
-formula <- "yes | trials(yes + no) ~ z_inc*z_incstt + z_inc*z_trnprv +
-    (1 + z_inc | reg) + (1 + z_inc | stt) + (1 + z_inc | eth)  + (1 + z_inc | educ) + (1 + z_inc | age) + (1 + z_inc | metro) + (1 | inc) + (1 | reg : eth) + (1 | reg : inc) + (1 | reg : metro) + (1 | stt : eth) + (1 | stt : inc) + (1 | stt : metro) + (1 | eth : inc) + (1 | eth : metro) + (1 | inc : metro) + (1 | educ : stt) + (1 | educ : inc) + (1 | educ : eth) + (1 | educ : metro) + (1 | educ : metro : inc) + (1 | educ : eth : inc)"
-
-model <- brm(formula,
-  data = data_matrix, family = binomial(link = "logit"),
-  iter = 1000,
-  prior = c(
-    prior_string("normal(0, 1)", class = "b"),
-    prior_string("normal(0, 1)", class = "sd"),
-    prior_string("normal(0, 1)", class = "Intercept")
-  ),
-  control = list(adapt_delta = 0.99, max_treedepth = 10),
-  seed = 10027,
-  backend = "cmdstanr", 
-  cores = 2
-)
-```
-
-
