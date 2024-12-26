@@ -7,7 +7,9 @@ library(ipumsr)
 # Set working directory
 here::i_am("src/helpers.R")
 
-# Define constants
+
+# Constants ---------------------------------------------------------------
+
 reg.lkup <- c(3, 4, 4, 3, 4, 4, 1, 1, 5, 3, 3, 4, 4, 2, 2, 2, 2, 3, 3, 1, 1, 1, 2, 2, 3, 2, 4, 2, 4, 1, 1, 4, 1, 3, 2, 2, 3, 4, 1, 1, 3, 2, 3, 3, 4, 1, 3, 4, 1, 2, 4)
 reg.label <- c("Northeast", "Midwest", "South", "West", "DC")
 stt.label <- c(state.name[1:8], "DC", state.name[9:50])
@@ -22,13 +24,13 @@ metro.label <- c("Rural", "Suburban", "Urban")
 state_encoder <- setNames(1:51, c(state.name[1:8], "DC", state.name[9:50]))
 region_encoder <- setNames(reg.label, 1:5)
 
-# Create state dictionary
 stt_dict <- data.frame(
   state_name = stt.label, state_abbr = stt.abb.label, stt = factor(1:51),
   region = factor(reg.lkup), region_name = region_encoder[reg.lkup]
 )
 
-# Function to process states data
+# Modeling functions -----------------------------------------------------
+
 process_states_data <- function(states_election_data, states_pop_income_data, year) {
   states_election <- states_election_data %>%
     dplyr::filter(party_simplified %in% c("DEMOCRAT", "REPUBLICAN"), year > 2000) %>%
@@ -60,7 +62,6 @@ process_states_data <- function(states_election_data, states_pop_income_data, ye
     )
 }
 
-# Process election data
 process_election_data <- function(election_data, year) {
   rural_urban_codes <- readxl::read_excel("../data/OEM/ruralurbancodes2013.xls") %>%
     dplyr::rename(county_fips = FIPS) %>%
@@ -123,7 +124,6 @@ process_election_data <- function(election_data, year) {
     dplyr::filter(!is.na(vote))
 }
 
-# Define function to process IPUMS data for poststratification
 process_ipums_data <- function(ipums_data, year) {
   ipums_agg <- ipums_data %>%
     dplyr::filter(YEAR == year, AGE >= 18) %>%
@@ -219,6 +219,34 @@ generate_poststratification_data <- function(ipums_data_path = "../data/IPUMS/us
     readr::write_csv("../data/census-pums-pop.csv")
 }
 
+get_label <- function(col_name) {
+  label <- switch(col_name,
+                  eth = eth.label,
+                  inc = inc.label,
+                  age = age.label,
+                  educ = educ.label,
+                  metro = metro.label,
+                  stt = stt.label
+  )
+  return(label)
+}
+
+relevel_label <- function(col_name) {
+  col_name <- deparse(substitute(col_name))
+  get_label(col_name)
+}
+
+map_label <- function(col) {
+  col_name <- deparse(substitute(col))
+  label <- get_label(col_name)
+  label_mapper <- setNames(label, 1:length(label))
+  result <- unname(label_mapper[as.character(col)])
+  fct_relevel(result, label)
+}
+
+
+# Survey data processing functions ----------------------------------------
+
 calc_and_add_weighted_results <- function(data_matrix, result_info_matrix) {
   weighted_results_info <- summarize(group_by(result_info_matrix, grp),
     n = sum(ones),
@@ -245,6 +273,8 @@ weighted_mean <- function(data_v, weights = rep(1, length(data_v)), subset = rep
   keep <- !is.na(data_v) & !is.na(weights) & !is.na(subset) & subset
   return(sum((weights * data_v)[keep]) / sum(weights[keep]))
 }
+
+# Vote adjustment functions -----------------------------------------------
 
 weighted_correction <- function(data_v, weights, x0) {
   delta <- optimize(calc_delta_correction, interval = c(-5, 5), data_v, weights, x0)$minimum
